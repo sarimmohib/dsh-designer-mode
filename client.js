@@ -27,6 +27,8 @@ window.__ModuleLoader__.load({
       'ui.hint': '描述一个改动，或要求下一个界面…',
       'ui.clear': '清空',
       'ui.reload': '重新载入画布',
+      'ui.immersive': '全屏',
+      'ui.immersiveExit': '退出全屏',
       'ui.statusLive': '实时',
       'ui.statusDone': '已通过',
       'ui.statusIdle': '未开始',
@@ -39,14 +41,7 @@ window.__ModuleLoader__.load({
       'ui.modeSelectHint': '点击加入',
       'ui.modeUnselectHint': '点击移除',
       'ui.selectedCount': '已选 {count}',
-      'ui.nothing': '还没有选中元素。',
       'ui.remove': '移出选择',
-      'ui.prompt': '提示词',
-      'ui.copy': '复制',
-      'ui.copied': '已复制',
-      'ui.canvasTitle': '设计画布',
-      'ui.selection': '选择',
-      'ui.selectionHint': '点击加入。已选元素保持选中。',
       'ui.picked': '已选 {count}',
     };
 
@@ -69,6 +64,8 @@ window.__ModuleLoader__.load({
       'ui.hint': 'Describe a change, or ask for the next screen…',
       'ui.clear': 'Clear',
       'ui.reload': 'Reload canvas',
+      'ui.immersive': 'Full screen',
+      'ui.immersiveExit': 'Exit full screen',
       'ui.statusLive': 'Live',
       'ui.statusDone': 'Approved',
       'ui.statusIdle': 'Not started',
@@ -81,14 +78,7 @@ window.__ModuleLoader__.load({
       'ui.modeSelectHint': 'Tap adds',
       'ui.modeUnselectHint': 'Tap removes',
       'ui.selectedCount': '{count} selected',
-      'ui.nothing': 'Nothing selected yet.',
       'ui.remove': 'Remove from selection',
-      'ui.prompt': 'Prompt',
-      'ui.copy': 'Copy',
-      'ui.copied': 'Copied',
-      'ui.canvasTitle': 'Designer canvas',
-      'ui.selection': 'Selection',
-      'ui.selectionHint': 'Tap adds. Already picked stay picked.',
       'ui.picked': '{count} picked',
     };
 
@@ -103,23 +93,18 @@ window.__ModuleLoader__.load({
       '  -webkit-font-smoothing: antialiased;',
       '}',
       '[data-designer-panel] [data-designer-bar] {',
-      '  flex: none; display: flex; align-items: center; gap: 9px; padding: 13px 16px 11px;',
+      '  flex: none; display: flex; align-items: center; gap: 7px; padding: 6px 10px;',
       '  border-bottom: 1px solid #262420;',
-      '}',
-      '[data-designer-panel] [data-designer-status] {',
-      '  display: inline-flex; align-items: center; gap: 9px; min-width: 0;',
-      '  margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .01em; color: #f4f0e8;',
-      '  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;',
-      '}',
-      '[data-designer-panel] [data-designer-status] span {',
-      '  color: #7b756a; font-weight: 400;',
       '}',
       '[data-designer-panel] [data-designer-dot] {',
       '  width: 7px; height: 7px; border-radius: 50%; flex: none; background: #6b665b;',
       '  transition: background .18s;',
       '}',
       '[data-designer-panel] [data-designer-dot][data-live] { background: #ff5a2e; }',
-      '[data-designer-panel] [data-designer-dot][data-approved] { background: #ff5a2e; }',
+      '[data-designer-panel] [data-designer-dot][data-approved] { background: #2f8f5b; }',
+      '[data-designer-panel] [data-designer-bar] button[data-primary][data-approved] {',
+      '  background: #2f8f5b; border-color: #2f8f5b;',
+      '}',
       '[data-designer-panel] [data-designer-spacer] { flex: 1; }',
       '[data-designer-panel] [data-designer-pill] {',
       '  flex: none; display: inline-flex; align-items: baseline; gap: 6px;',
@@ -167,30 +152,10 @@ window.__ModuleLoader__.load({
       '[data-designer-panel] [data-designer-tray] {',
       '  flex: none; border-top: 1px solid #262420; background: #171612;',
       '}',
-      '[data-designer-panel] [data-designer-tray-head] {',
-      '  display: flex; align-items: center; gap: 8px; padding: 9px 16px 7px;',
-      '}',
-      '[data-designer-panel] [data-designer-tray-label] {',
-      '  flex: none; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: #6b665b;',
-      '}',
-      '[data-designer-panel] [data-designer-tray-hint] {',
-      '  min-width: 0; font-size: 11px; color: #8b8374;',
-      '  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;',
-      '}',
-      '[data-designer-panel] [data-designer-tray-head] button {',
-      '  margin-left: auto; flex: none; height: auto; padding: 5px 9px; border-radius: 7px;',
-      '  font: inherit; font-size: 11px; font-weight: 550; cursor: pointer;',
-      '  border: 1px solid #2e2b25; background: transparent; color: #d9d3c6;',
-      '}',
-      '[data-designer-panel] [data-designer-tray-head] button:not(:disabled):hover { border-color: #ff5a2e; color: #fff; }',
-      '[data-designer-panel] [data-designer-tray-head] button:disabled { opacity: .3; cursor: default; }',
       '[data-designer-panel] [data-designer-chips] {',
       '  display: flex; gap: 7px; overflow-x: auto; padding: 0 16px 9px; scrollbar-width: none;',
       '}',
       '[data-designer-panel] [data-designer-chips]::-webkit-scrollbar { display: none; }',
-      '[data-designer-panel] [data-designer-nothing] {',
-      '  padding: 3px 16px 9px; font-size: 11.5px; color: #6b665b; white-space: nowrap;',
-      '}',
       '[data-designer-panel] [data-designer-chip] {',
       '  flex: none; display: flex; align-items: center; gap: 7px; cursor: pointer;',
       '  background: #221f19; border: 1px solid #332f27; border-radius: 10px;',
@@ -210,24 +175,6 @@ window.__ModuleLoader__.load({
       '  flex: none; font-style: normal; font-size: 13px; line-height: 1; color: #8b8374;',
       '}',
       '/* prompt preview */',
-      '[data-designer-panel] [data-designer-prompt] {',
-      '  flex: none; display: flex; align-items: center; gap: 9px; padding: 8px 16px 9px;',
-      '  border-top: 1px solid #211f1a;',
-      '}',
-      '[data-designer-panel] [data-designer-prompt-label] {',
-      '  flex: none; font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: #5f5a51;',
-      '}',
-      '[data-designer-panel] [data-designer-prompt] code {',
-      '  flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;',
-      '  font-size: 10.5px; color: #c8c2b4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;',
-      '}',
-      '[data-designer-panel] [data-designer-copy] {',
-      '  flex: none; height: auto; padding: 4px 8px; border-radius: 6px; cursor: pointer;',
-      '  font: inherit; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;',
-      '  border: 1px solid #2e2b25; background: transparent; color: #a9a294;',
-      '}',
-      '[data-designer-panel] [data-designer-copy]:not(:disabled):hover { border-color: #ff5a2e; color: #fff; }',
-      '[data-designer-panel] [data-designer-copy]:disabled { opacity: .3; cursor: default; }',
       '/* composer */',
       '[data-designer-panel] [data-designer-composer] {',
       '  flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 0 16px 10px;',
@@ -279,9 +226,32 @@ window.__ModuleLoader__.load({
       '  background: #6b7f95; color: #fff;',
       '}',
       '[data-designer-panel] [data-designer-modes] button[aria-pressed="true"] small { opacity: .7; color: inherit; }',
+      /* Immersive: collapse the shell's tab strip for this panel so the canvas
+       * owns the screen. Scoped to the panel's own pane, and only while the
+       * flag is set by the toggle in this bar. */
+      'html[data-designer-immersive] [data-dockkit-strip] {',
+      '  display: none !important;',
+      '}',
+      'html[data-designer-immersive] [data-dockkit-pane] {',
+      '  border-radius: 0 !important;',
+      '}',
+      '[data-designer-panel] [data-designer-bar] button[aria-pressed="true"][data-icon] {',
+      '  background: #ff5a2e; border-color: #ff5a2e; color: #fff;',
+      '}',
       '[data-designer-panel] [data-designer-error] {',
       '  flex: none; padding: 0 16px 9px; font-size: 11px; color: #ff8a65;',
       '}',
+      /* single chips row; only rendered when something is selected */
+      '[data-designer-panel] [data-designer-tray] {',
+      '  flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px;',
+      '  border-top: 1px solid #262420; background: #171612;',
+      '}',
+      '[data-designer-panel] [data-designer-clear] {',
+      '  flex: none; height: 24px; padding: 0 9px; border-radius: 7px; cursor: pointer;',
+      '  border: 1px solid #2e2b25; background: transparent; color: #d9d3c6;',
+      '  font: inherit; font-size: 10px; font-weight: 550; letter-spacing: .05em; text-transform: uppercase;',
+      '}',
+      '[data-designer-panel] [data-designer-clear]:hover { border-color: #ff5a2e; color: #fff; }',
     ].join('\n');
 
     const stateUrl = (sessionId) => `/designer-mode/state?session=${encodeURIComponent(sessionId)}`;
@@ -332,6 +302,11 @@ window.__ModuleLoader__.load({
       viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true, fill: 'none',
       stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round',
     }, h('path', { d: 'M13.5 8a5.5 5.5 0 1 1-1.9-4.2' }), h('path', { d: 'M13.6 1.9v3.4h-3.4' }));
+
+    const ImmersiveIcon = () => h('svg', {
+      viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': true, fill: 'none',
+      stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round',
+    }, h('path', { d: 'M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4' }));
 
     const CheckIcon = () => h('svg', {
       viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true, fill: 'none',
@@ -582,7 +557,7 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState('');
       const [frameKey, setFrameKey] = React.useState(0);
-      const [copied, setCopied] = React.useState(false);
+      const [immersive, setImmersive] = React.useState(false);
       const frameRef = React.useRef(null);
       const editorRef = React.useRef(null);
       const selectedRef = React.useRef(selected);
@@ -621,6 +596,16 @@ window.__ModuleLoader__.load({
         });
         wiringRef.current.paint();
       }, []);
+
+      /* Immersive: flag the product root so the panel's own tab strip can
+       * collapse and give the canvas the whole screen. Reversible, and the
+       * toggle that set it lives in this bar, so there is always a way back. */
+      React.useEffect(() => {
+        const root = document.documentElement;
+        if (immersive) root.setAttribute('data-designer-immersive', '');
+        else root.removeAttribute('data-designer-immersive');
+        return () => root.removeAttribute('data-designer-immersive');
+      }, [immersive]);
 
       /* Mode or selection changed: repaint the frame overlays. */
       React.useEffect(() => {
@@ -712,16 +697,28 @@ window.__ModuleLoader__.load({
       }, h('span', { 'data-designer-mode-top': '' }, ICONS[id], label), h('small', null, hint));
 
       const toolbar = h('div', { 'data-designer-bar': '' },
-        h('span', { 'data-designer-status': '', title: statusLabel },
-          h('i', { 'data-designer-dot': '', 'data-live': status === 'live' ? '' : undefined, 'data-approved': status === 'approved' ? '' : undefined }),
-          t('ui.canvasTitle'),
-          h('span', null, ' / ' + t('ui.selection'))),
+        h('i', {
+          'data-designer-dot': '',
+          title: statusLabel,
+          'aria-label': statusLabel,
+          'data-live': status === 'live' ? '' : undefined,
+          'data-approved': status === 'approved' ? '' : undefined,
+        }),
         h('span', { 'data-designer-spacer': '' }),
         h('span', { 'data-designer-pill': '', title: statusLabel },
           h('b', null, String(selected.length)),
           t('ui.picked').replace('{count}', '').trim() || 'picked'),
         h('button', {
           type: 'button',
+          'data-icon': '',
+          'aria-pressed': immersive ? 'true' : 'false',
+          title: immersive ? t('ui.immersiveExit') : t('ui.immersive'),
+          'aria-label': immersive ? t('ui.immersiveExit') : t('ui.immersive'),
+          onClick: () => setImmersive((value) => !value),
+        }, h(ImmersiveIcon)),
+        h('button', {
+          type: 'button',
+          'data-icon': '',
           title: t('ui.reload'),
           'aria-label': t('ui.reload'),
           onClick: () => setFrameKey((value) => value + 1),
@@ -732,6 +729,7 @@ window.__ModuleLoader__.load({
             type: 'button',
             'data-primary': '',
             'data-icon': '',
+            'data-approved': state.approved ? '' : undefined,
             disabled: busy || !state.started,
             title: t('ui.approve'),
             'aria-label': t('ui.approve'),
@@ -758,18 +756,12 @@ window.__ModuleLoader__.load({
         setSelected((current) => current.filter((element) => element.id !== id));
       };
 
-      const tray = h('div', { 'data-designer-tray': '' },
-        h('div', { 'data-designer-tray-head': '' },
-          h('span', { 'data-designer-tray-label': '' }, t('ui.selection')),
-          h('span', { 'data-designer-tray-hint': '' }, t('ui.selectionHint')),
-          h('button', {
-            type: 'button',
-            disabled: selected.length === 0,
-            onClick: () => setSelected([]),
-          }, t('ui.clear'))),
-        selected.length === 0
-          ? h('div', { 'data-designer-nothing': '' }, t('ui.nothing'))
-          : h('div', { 'data-designer-chips': '' },
+      /* One chips row, and it only exists when something is picked — an empty
+       * tray costs vertical space on a phone for no information. */
+      const tray = selected.length === 0
+        ? null
+        : h('div', { 'data-designer-tray': '' },
+          h('div', { 'data-designer-chips': '' },
             selected.map((element, index) => h('button', {
               key: element.id,
               type: 'button',
@@ -779,7 +771,12 @@ window.__ModuleLoader__.load({
             },
             h('i', null, String(index + 1)),
             h('span', null, nameOf(element)),
-            h('em', null, '×')))));
+            h('em', null, '×')))),
+          h('button', {
+            type: 'button',
+            'data-designer-clear': '',
+            onClick: () => setSelected([]),
+          }, t('ui.clear')));
 
       const composer = h('div', { 'data-designer-composer': '' },
         h('textarea', {
@@ -797,29 +794,6 @@ window.__ModuleLoader__.load({
           onClick: () => void send(),
         }, busy ? t('ui.sending') : t('ui.send')));
 
-      /* Prompt preview: exactly what the selection would send to the agent. */
-      const promptText = selected.length === 0
-        ? '—'
-        : selected.map((element) => element.selector).join(' · ');
-
-      const promptRow = h('div', { 'data-designer-prompt': '' },
-        h('span', { 'data-designer-prompt-label': '' }, t('ui.prompt')),
-        h('code', { title: promptText }, promptText),
-        h('button', {
-          type: 'button',
-          'data-designer-copy': '',
-          disabled: selected.length === 0,
-          onClick: () => {
-            const text = selected.map((element) => element.selector).join(', ');
-            const done = () => {
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1200);
-            };
-            if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, done);
-            else done();
-          },
-        }, copied ? t('ui.copied') : t('ui.copy')));
-
       /* Thumb-zone mode bar: the primary control, kept last in the panel. */
       const modeBar = h('div', { 'data-designer-modes': '', role: 'group', 'aria-label': 'Interaction mode' },
         modeButton('navigate', t('ui.modeNavigate'), t('ui.modeNavigateHint')),
@@ -830,7 +804,6 @@ window.__ModuleLoader__.load({
         toolbar,
         canvas,
         tray,
-        promptRow,
         composer,
         modeBar,
         error === '' ? null : h('div', { 'data-designer-error': '' }, error));
