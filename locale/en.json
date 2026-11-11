@@ -1,0 +1,34 @@
+{
+  "meta": {
+    "title": "Designer Mode",
+    "description": "A live UI canvas in the right sidebar: the agent builds and revises the interface until you mark the design done, with pencil-click element selection."
+  },
+  "tab": { "title": "Designer" },
+  "guide": {
+    "title": "Designer mode",
+    "description": "Live UI canvas with click-to-select element editing"
+  },
+  "more": { "open": "Designer mode" },
+  "ui": {
+    "start": "Start designing",
+    "starting": "Starting…",
+    "pencil": "Select elements",
+    "pencilOn": "Pencil on: clicks select elements",
+    "pencilOff": "Pencil off: clicks pass through to the page",
+    "done": "Design done",
+    "approve": "Mark design as done",
+    "finished": "Design approved — the agent may now implement it in the project.",
+    "empty": "No design yet. Ask the agent for the first screen.",
+    "ask": "What should change about this element?",
+    "send": "Send",
+    "sending": "Sending…",
+    "hint": "Describe a change, or ask for the next screen…",
+    "selected": "Selected",
+    "clear": "Clear selection",
+    "offline": "Designer state unavailable",
+    "reload": "Reload canvas",
+    "statusLive": "Live",
+    "statusDone": "Approved",
+    "statusIdle": "Not started"
+  }
+}

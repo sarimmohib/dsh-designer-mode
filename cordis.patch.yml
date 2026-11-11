@@ -1,0 +1,3 @@
+- insert:
+    - id: designer-mode
+      name: '@local/designer-mode'
