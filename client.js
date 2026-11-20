@@ -1,6 +1,9 @@
 window.__ModuleLoader__.load({
   id: '@local/designer-mode',
   factory(require) {
+    // Earliest possible cleanup: older versions could leave this attribute on
+    // <html>, hiding DSH's own sidebar. Remove it before anything registers.
+    try { document.documentElement.removeAttribute('data-designer-immersive'); } catch (e) {}
     const React = require('react');
     const h = React.createElement;
 
@@ -27,8 +30,6 @@ window.__ModuleLoader__.load({
       'ui.hint': '描述一个改动，或要求下一个界面…',
       'ui.clear': '清空',
       'ui.reload': '重新载入画布',
-      'ui.immersive': '全屏',
-      'ui.immersiveExit': '退出全屏',
       'ui.statusLive': '实时',
       'ui.statusDone': '已通过',
       'ui.statusIdle': '未开始',
@@ -71,8 +72,6 @@ window.__ModuleLoader__.load({
       'ui.hint': 'Describe a change, or ask for the next screen…',
       'ui.clear': 'Clear',
       'ui.reload': 'Reload canvas',
-      'ui.immersive': 'Full screen',
-      'ui.immersiveExit': 'Exit full screen',
       'ui.statusLive': 'Live',
       'ui.statusDone': 'Approved',
       'ui.statusIdle': 'Not started',
@@ -343,8 +342,6 @@ window.__ModuleLoader__.load({
       '  background: #6b7f95; color: #fff;',
       '}',
       '[data-designer-panel] [data-designer-modes] button[aria-pressed="true"] small { opacity: .7; color: inherit; }',
-      'html[data-designer-immersive] [data-dockkit-strip] { display: none !important; }',
-      'html[data-designer-immersive] [data-dockkit-pane] { border-radius: 0 !important; }',
       '[data-designer-panel] [data-designer-rail] button[aria-pressed="true"][data-icon] {',
       '  background: #ff5a2e; border-color: #ff5a2e; color: #fff;',
       '}',
@@ -481,11 +478,6 @@ window.__ModuleLoader__.load({
       viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true, fill: 'none',
       stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round',
     }, h('path', { d: 'M13.5 8a5.5 5.5 0 1 1-1.9-4.2' }), h('path', { d: 'M13.6 1.9v3.4h-3.4' }));
-
-    const ImmersiveIcon = () => h('svg', {
-      viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': true, fill: 'none',
-      stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round',
-    }, h('path', { d: 'M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4' }));
 
     const CheckIcon = () => h('svg', {
       viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true, fill: 'none',
@@ -889,7 +881,6 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('');
       const [animating, setAnimating] = React.useState(false);
       const [animResult, setAnimResult] = React.useState(null);
-      const [immersive, setImmersive] = React.useState(false);
       const [traceVisible, setTraceVisible] = React.useState(false);
       const traceVisibleRef = React.useRef(false);
       traceVisibleRef.current = traceVisible;
@@ -999,28 +990,6 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         wiringRef.current?.setTraceVisible(traceVisible);
       }, [traceVisible]);
-
-      /* Immersive: flag the product root so the shell's tab strip can collapse
-       * and give the canvas the whole screen. The toggle lives in this rail,
-       * so there is always a way back. */
-      React.useEffect(() => {
-        const root = document.documentElement;
-        if (immersive) root.setAttribute('data-designer-immersive', '');
-        else root.removeAttribute('data-designer-immersive');
-        // Always provide a keyboard way out of immersive mode, since its toggle
-        // lives inside the sidebar that immersive mode hides.
-        const onKey = (e) => {
-          if (e.key === 'Escape' && root.hasAttribute('data-designer-immersive')) {
-            root.removeAttribute('data-designer-immersive');
-            setImmersive(false);
-          }
-        };
-        doc.defaultView.addEventListener('keydown', onKey, true);
-        return () => {
-          root.removeAttribute('data-designer-immersive');
-          doc.defaultView.removeEventListener('keydown', onKey, true);
-        };
-      }, [immersive]);
 
       /* Detach when the panel unmounts. */
       React.useEffect(() => () => {
@@ -1269,13 +1238,6 @@ window.__ModuleLoader__.load({
             onClick: () => void runAnimation(),
           }, animating ? '…' : 'Anim'),
           animBadge,
-          h('button', {
-            type: 'button', 'data-icon': '',
-            'aria-pressed': immersive ? 'true' : 'false',
-            title: immersive ? t('ui.immersiveExit') : t('ui.immersive'),
-            'aria-label': immersive ? t('ui.immersiveExit') : t('ui.immersive'),
-            onClick: () => setImmersive((value) => !value),
-          }, h(ImmersiveIcon)),
           h('button', {
             type: 'button', 'data-icon': '',
             'aria-pressed': traceVisible ? 'true' : 'false',
