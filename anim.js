@@ -4,7 +4,7 @@
  * frame-timing statistics (FPS, percentiles, jank counts, smoothness score).
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -133,7 +133,9 @@ export async function measureAnimation(options = {}) {
       return result.result.value === 'complete' ? true : null;
     }, 10000);
 
-    const interactionCall = interaction === '' ? '' : 'setTimeout(() => { try { (0, eval)(' + JSON.stringify(interaction) + ') } catch (e) {} }, ' + warmup + ');';
+    // Execute the interaction snippet directly in page scope after warmup.
+    // Wrapping in a Function keeps syntax errors contained without eval-string indirection.
+    const interactionCall = interaction === '' ? '' : 'setTimeout(function(){ try { new Function(' + JSON.stringify(interaction) + ')() } catch (e) {} }, ' + warmup + ');';
     const expression = '(async () => { const dts = []; let last = performance.now(); const start = last; const end = start + ' + duration + '; ' + interactionCall + ' return await new Promise((resolve) => { function frame(now) { dts.push(now - last); last = now; if (now >= end) resolve({ dts, elapsed: now - start }); else requestAnimationFrame(frame); } requestAnimationFrame(frame); }); })()';
     const evaluated = await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
     if (evaluated.exceptionDetails) throw new Error(evaluated.exceptionDetails.text || 'Evaluation failed');
@@ -144,5 +146,6 @@ export async function measureAnimation(options = {}) {
   } finally {
     if (cdp !== undefined) cdp.close();
     try { child.kill(); } catch {}
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
   }
 }

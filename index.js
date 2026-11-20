@@ -6,12 +6,12 @@
  * the HTTP surface the Designer tab uses to render and control everything.
  */
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { measureAnimation } from './anim.js';
-import { getLive, publish as publishLive, setApproved as setLiveApproved, setAgentMode as setLiveAgent, clearLive, setActivity, addTrace, clearTrace, getTrace, setSessionHint } from './live-state.js';
+import { getLive, setActivity, addTrace, clearTrace, getTrace, setSessionHint } from './live-state.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -42,11 +42,23 @@ const SESSION_STORE_DIR = join(process.env.DSH_HOME || join(process.env.USERPROF
 try { mkdirSync(SESSION_STORE_DIR, { recursive: true }); } catch {}
 const sessionFile = (id) => join(SESSION_STORE_DIR, String(id).replace(/[^a-zA-Z0-9_-]/g, '_') + '.json');
 function loadSession(id) {
-  try { const f = sessionFile(id); if (existsSync(f)) return JSON.parse(readFileSync(f, 'utf8')); } catch {}
+  try {
+    const f = sessionFile(id);
+    if (!existsSync(f)) return undefined;
+    const parsed = JSON.parse(readFileSync(f, 'utf8'));
+    // Validate the shape before trusting persisted data (truncated/old files).
+    if (parsed && Array.isArray(parsed.tabs) && parsed.tabs.length > 0
+        && typeof parsed.activeTabId === 'string') return parsed;
+  } catch {}
   return undefined;
 }
 function saveSession(id, state) {
-  try { writeFileSync(sessionFile(id), JSON.stringify(state), 'utf8'); } catch {}
+  try {
+    const target = sessionFile(id);
+    const tmp = target + '.tmp';
+    writeFileSync(tmp, JSON.stringify(state), 'utf8');
+    renameSync(tmp, target);
+  } catch {}
 }
 
 const FRAME_PATH = '/designer-mode/frame';
@@ -125,7 +137,7 @@ function publicState(state) {
       animation: null,
     };
   }
-  const tab = activeTab(state);
+  const tab = activeTab(state) ?? state.tabs[0] ?? blankTab('Design 1');
   return {
     started: tab.started,
     approved: tab.approved,
@@ -318,7 +330,7 @@ export function apply(ctx) {
       },
       render: (_args, value) => [{
         type: 'text',
-        text: 'Canvas updated (revision ' + value.revision + ', tab ' + value.tab + '). ' + (value.approved ? 'The user already approved the design; you may implement it now.' : 'Keep iterating on the canvas until the user marks the design done.'),
+        text: 'Canvas updated (revision ' + value.revision + ', tab ' + value.tab + ').',
       }],
     },
     async execute(args, exec) {
@@ -530,7 +542,7 @@ export function apply(ctx) {
         '- designer_screenshot(width?, height?, path?, tab?) headlessly captures the canvas to a PNG.',
         '- designer_tab(action, id?, name?) with action new|select|close|rename controls tabs headlessly.',
         '- designer_canvas(ratio?, mode?, reload?, clearSelection?) controls the panel rail headlessly: ratios fill/phone/portrait/square/landscape/tv/wide, modes navigate/select/unselect.',
-        'The user sees published HTML live in the Designer tab. In Select/Unselect modes their taps produce ordered element selections; change exactly those elements and republish the whole document.',
+        'The user sees published HTML live in the Designer tab. Their canvas taps produce ordered element selections (modifier-click also selects in Navigate mode); change exactly those elements and republish the whole document.',
       ].join(String.fromCharCode(10));
     },
   }), 'designer-mode: canvas guidance');
@@ -593,7 +605,7 @@ export function apply(ctx) {
         // itself must stay session-scoped — no global design bleed.
         const live = getLive();
         if (live !== undefined && live.activity !== undefined && live.activity.session === sessionId) result.activity = live.activity;
-        if (live !== undefined) result.trace = (getTrace() || []).filter((t) => t.session === undefined || t.session === sessionId);
+        if (live !== undefined) result.trace = (getTrace() || []).filter((t) => t.session === sessionId);
         sendJson(res, 200, result);
       },
     }), 'designer-mode: state route');

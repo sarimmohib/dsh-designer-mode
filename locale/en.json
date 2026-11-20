@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Designer Mode",
-    "description": "A live UI canvas in the right sidebar: the agent builds and revises the interface until you mark the design done, with pencil-click element selection."
+        "description": "A live UI canvas in the right sidebar: the agent publishes designs live, and you can select elements at any time to request changes."
   },
   "tab": { "title": "Designer" },
   "guide": {

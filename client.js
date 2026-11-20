@@ -92,18 +92,15 @@ window.__ModuleLoader__.load({
       'ui.picked': '{count} picked',
     };
 
-    const ACCENT = '#c8732f';
-    const SLATE = '#6b7f95';
-
     /** Canvas size presets. w/h = null means fill the panel exactly. */
     const RATIOS = {
-      fill: { label: 'Full screen', short: 'Fill', tiny: 'Full', w: null, h: null },
-      phone: { label: 'Mobile 9:16', short: 'Phone', tiny: 'Ph', w: 9, h: 16 },
-      portrait: { label: 'Portrait 3:4', short: 'Port', tiny: 'Pt', w: 3, h: 4 },
-      square: { label: 'Square 1:1', short: 'Sq', tiny: 'Sq', w: 1, h: 1 },
-      landscape: { label: 'Landscape 3:2', short: 'Land', tiny: 'Lnd', w: 3, h: 2 },
-      tv: { label: 'TV 16:9', short: 'TV', tiny: 'TV', w: 16, h: 9 },
-      wide: { label: 'Ultra-wide 21:9', short: 'Wide', tiny: 'Wd', w: 21, h: 9 },
+      fill: { label: 'Full screen', short: 'Fill', w: null, h: null },
+      phone: { label: 'Mobile 9:16', short: 'Phone', w: 9, h: 16 },
+      portrait: { label: 'Portrait 3:4', short: 'Port', w: 3, h: 4 },
+      square: { label: 'Square 1:1', short: 'Sq', w: 1, h: 1 },
+      landscape: { label: 'Landscape 3:2', short: 'Land', w: 3, h: 2 },
+      tv: { label: 'TV 16:9', short: 'TV', w: 16, h: 9 },
+      wide: { label: 'Ultra-wide 21:9', short: 'Wide', w: 21, h: 9 },
     };
     const FRAME_MARGIN = 12;
     const isFill = (preset) => preset.w === null || preset.h === null;
@@ -124,25 +121,12 @@ window.__ModuleLoader__.load({
       "  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;",
       '  -webkit-font-smoothing: antialiased;',
       '}',
-      '[data-designer-panel] [data-designer-bar] {',
-      '  flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 10px;',
-      '  border-bottom: 1px solid #262420;',
-      '}',
-      '[data-designer-panel] [data-designer-status] {',
-      '  display: inline-flex; align-items: center; gap: 9px; min-width: 0;',
-      '  margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .01em; color: #f4f0e8;',
-      '  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;',
-      '}',
-      '[data-designer-panel] [data-designer-status] span {',
-      '  color: #7b756a; font-weight: 400;',
-      '}',
       '[data-designer-panel] [data-designer-dot] {',
       '  width: 7px; height: 7px; border-radius: 50%; flex: none; background: #6b665b;',
       '  transition: background .18s;',
       '}',
       '[data-designer-panel] [data-designer-dot][data-live] { background: #ff5a2e; }',
       '[data-designer-panel] [data-designer-dot][data-approved] { background: #ff5a2e; }',
-      '[data-designer-panel] [data-designer-spacer] { flex: 1; }',
       '[data-designer-panel] [data-designer-pill] {',
       '  flex: none; display: inline-flex; align-items: baseline; gap: 6px;',
       '  padding: 5px 10px; border: 1px solid #2e2b25; border-radius: 999px;',
@@ -151,19 +135,6 @@ window.__ModuleLoader__.load({
       '[data-designer-panel] [data-designer-pill] b {',
       '  color: #f4f0e8; font-size: 13px; font-weight: 650;',
       '}',
-      '[data-designer-panel] [data-designer-bar] button {',
-      '  flex: none; height: 24px; padding: 0 7px; border-radius: 6px; cursor: pointer;',
-      '  font: inherit; font-size: 11px; font-weight: 550;',
-      '  border: 1px solid #2e2b25; background: transparent; color: #d9d3c6;',
-      '  display: inline-flex; align-items: center; gap: 5px;',
-      '}',
-      '[data-designer-panel] [data-designer-bar] button:hover { border-color: #ff5a2e; color: #fff; }',
-      '[data-designer-panel] [data-designer-bar] button[data-primary] {',
-      '  background: #ff5a2e; border-color: #ff5a2e; color: #fff;',
-      '}',
-      '[data-designer-panel] [data-designer-bar] button[data-primary]:hover { background: #ff6b41; }',
-      '[data-designer-panel] [data-designer-bar] button:disabled { opacity: .35; cursor: default; border-color: #2e2b25; }',
-      '[data-designer-panel] [data-designer-bar] button[data-icon] { width: 24px; padding: 0; justify-content: center; }',
       '/* tab bar */',
       '[data-designer-panel] [data-designer-tabs] {',
       '  flex: none; display: flex; align-items: center; gap: 4px; overflow-x: auto;',
@@ -269,25 +240,6 @@ window.__ModuleLoader__.load({
       '[data-designer-panel] [data-designer-chip] em {',
       '  flex: none; font-style: normal; font-size: 13px; line-height: 1; color: #8b8374;',
       '}',
-      '/* prompt preview */',
-      '[data-designer-panel] [data-designer-prompt] {',
-      '  flex: none; display: flex; align-items: center; gap: 9px; padding: 8px 16px 9px;',
-      '  border-top: 1px solid #211f1a;',
-      '}',
-      '[data-designer-panel] [data-designer-prompt-label] {',
-      '  flex: none; font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: #5f5a51;',
-      '}',
-      '[data-designer-panel] [data-designer-prompt] code {',
-      '  flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;',
-      '  font-size: 10.5px; color: #c8c2b4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;',
-      '}',
-      '[data-designer-panel] [data-designer-copy] {',
-      '  flex: none; height: auto; padding: 4px 8px; border-radius: 6px; cursor: pointer;',
-      '  font: inherit; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;',
-      '  border: 1px solid #2e2b25; background: transparent; color: #a9a294;',
-      '}',
-      '[data-designer-panel] [data-designer-copy]:not(:disabled):hover { border-color: #ff5a2e; color: #fff; }',
-      '[data-designer-panel] [data-designer-copy]:disabled { opacity: .3; cursor: default; }',
       '/* composer */',
       '[data-designer-panel] [data-designer-composer] {',
       '  flex: none; display: flex; align-items: flex-end; gap: 6px; padding: 0 10px 8px;',
@@ -890,6 +842,7 @@ window.__ModuleLoader__.load({
       const [ratio, setRatio] = React.useState('fill');
       const reloadRef = React.useRef(0);
       const clearRef = React.useRef(0);
+      const lastMotionPost = React.useRef(0);
       const frameRef = React.useRef(null);
       const canvasRef = React.useRef(null);
       const [frameSize, setFrameSize] = React.useState({ w: 320, h: 480 });
@@ -974,7 +927,15 @@ window.__ModuleLoader__.load({
             });
             if (tappedMode !== 'unselect') window.setTimeout(() => editorRef.current?.focus(), 0);
           },
-          onTrace: (entry) => { void command(sessionId, 'trace-add', { entry }); },
+          onTrace: (entry) => {
+        // Clicks are always recorded; motion/canvas samples are throttled to
+        // avoid flooding the host with ~8 writes per second.
+        const isMotion = entry.action === 'motion' || entry.action === 'canvas-motion';
+        const now = Date.now();
+        if (isMotion && now - lastMotionPost.current < 500) return;
+        if (isMotion) lastMotionPost.current = now;
+        void command(sessionId, 'trace-add', { entry });
+      },
         });
         wiringRef.current.setTraceVisible(traceVisibleRef.current);
         wiringRef.current.paint();
@@ -1072,7 +1033,7 @@ window.__ModuleLoader__.load({
           const v = result?.state?.view;
           if (v !== undefined) {
             if (typeof v.ratio === 'string') setRatio(v.ratio);
-            if (typeof v.mode === 'string') setMode(v.mode);
+            // mode is local-first; don't echo the server value back (stale races)
             if (typeof v.reloadSeq === 'number') reloadRef.current = v.reloadSeq;
             if (typeof v.selectionClearSeq === 'number') clearRef.current = v.selectionClearSeq;
           }

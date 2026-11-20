@@ -1,11 +1,10 @@
 /**
  * Shared live-state store for designer mode.
  *
- * The agent's tools and the browser panel run in different session contexts,
- * so keying canvas state by session id means they never see each other's work.
- * This module keeps ONE live design (the most recently published canvas) that
- * both sides read and write, and mirrors it to disk so a page reload or a
- * process restart still shows the latest design.
+ * Informational cross-session data: the latest agent activity and the movement
+ * trace. Canvas state itself is session-scoped (see index.js SESSION_STORE_DIR);
+ * this store never holds a design and must never make designs bleed across
+ * sessions. Data is mirrored to disk so it survives reloads.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -57,6 +56,7 @@ export function setActivity(type, label = '', session = undefined) {
 export function getLive() { return live; }
 export function publish(html, options = {}) {
   live = {
+    ...live,
     html: String(html ?? ''),
     revision: (live.revision || 0) + 1,
     started: true,
