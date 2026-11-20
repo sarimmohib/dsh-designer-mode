@@ -1311,7 +1311,7 @@ window.__ModuleLoader__.load({
           id: TAB_ID,
           kind: TAB_KIND,
           priority: 'extension',
-          keepMounted: true,
+          keepMounted: false,
           title: () => ctx.locale.bind(NS)('tab.title'),
           guide: [{
             id: 'designer',

@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { measureAnimation } from './anim.js';
-import { getLive, publish as publishLive, setApproved as setLiveApproved, setAgentMode as setLiveAgent, clearLive, setActivity, addTrace, clearTrace, getTrace } from './live-state.js';
+import { getLive, publish as publishLive, setApproved as setLiveApproved, setAgentMode as setLiveAgent, clearLive, setActivity, addTrace, clearTrace, getTrace, setSessionHint } from './live-state.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -38,6 +38,17 @@ const ALLOWED_WHILE_DESIGNING = new Set([
   'job_list',
   'job_output',
 ]);
+
+const SESSION_STORE_DIR = join(process.env.DSH_HOME || join(process.env.USERPROFILE || '', '.dsh'), 'designer-mode', 'sessions');
+try { mkdirSync(SESSION_STORE_DIR, { recursive: true }); } catch {}
+const sessionFile = (id) => join(SESSION_STORE_DIR, String(id).replace(/[^a-zA-Z0-9_-]/g, '_') + '.json');
+function loadSession(id) {
+  try { const f = sessionFile(id); if (existsSync(f)) return JSON.parse(readFileSync(f, 'utf8')); } catch {}
+  return undefined;
+}
+function saveSession(id, state) {
+  try { writeFileSync(sessionFile(id), JSON.stringify(state), 'utf8'); } catch {}
+}
 
 const FRAME_PATH = '/designer-mode/frame';
 const STATE_PATH = '/designer-mode/state';
@@ -164,12 +175,14 @@ export function apply(ctx) {
   const ensureState = (sessionId) => {
     let state = states.get(sessionId);
     if (state === undefined) {
-      state = blankState();
+      state = loadSession(sessionId) ?? blankState();
       states.set(sessionId, state);
     }
     return state;
   };
   const notify = (sessionId) => {
+    const st = states.get(sessionId);
+    if (st !== undefined) saveSession(sessionId, st);
     const list = waiters.get(sessionId);
     if (list === undefined) return;
     waiters.delete(sessionId);
@@ -191,8 +204,8 @@ export function apply(ctx) {
     tab.revision += 1;
     tab.started = true;
     tab.updatedAt = Date.now();
-    publishLive(tab.html, { label: tab.name, agentMode: tab.agentMode });
-    setActivity('design', tab.name);
+    // Canvas stays in this session's state only — no global publish.
+    setActivity('design', tab.name, sessionId);
     notify(sessionId);
     return tab;
   };
@@ -387,7 +400,7 @@ export function apply(ctx) {
         const state = ensureState(agent.session.id);
         if (tabById(state, args.tab) !== undefined) state.activeTabId = args.tab;
       }
-      setActivity('screenshot', 'Capturing canvas');
+      setActivity('screenshot', 'Capturing canvas', agent.session.id);
       return screenshot(agent.session.id, args);
     },
   }), 'designer-mode: designer_screenshot tool');
@@ -416,7 +429,7 @@ export function apply(ctx) {
         const tab = typeof args.tab === 'string' ? tabById(state, args.tab) : activeTab(state);
         html = tab === undefined ? '' : tab.html;
       }
-      setActivity('animate', args.label || 'Measuring animation');
+      setActivity('animate', args.label || 'Measuring animation', agent.session.id);
       const result = await measureAnimation({
         html,
         durationMs: args.durationMs,
@@ -578,11 +591,9 @@ export function apply(ctx) {
   const renderFrame = (sessionId, tabId) => {
     const state = stateOf(sessionId);
     const tab = tabId === undefined || tabId === '' ? activeTab(state) : tabById(state, tabId);
-    if (tab !== undefined && tab.html !== '') return tab.html;
-    // Shared live canvas: the agent publishes into a different session than the
-    // panel polls, so fall back to the one shared design on disk.
-    const live = getLive();
-    return live !== undefined && live.html !== '' ? live.html : EMPTY_FRAME;
+    // Session-scoped: never fall back to a global canvas, or designs bleed
+    // across every session. Each session sees only its own design.
+    return tab !== undefined && tab.html !== '' ? tab.html : EMPTY_FRAME;
   };
 
   ctx.inject(['webServer'], (webCtx) => {
@@ -609,26 +620,11 @@ export function apply(ctx) {
         const url = new URL(req.url ?? '/', 'http://127.0.0.1');
         const sessionId = url.searchParams.get('session') ?? '';
         const result = publicState(stateOf(sessionId));
-        // Blend the shared live canvas so the panel always reflects the latest
-        // agent publish, regardless of which session id it polls with.
+        // Activity/trace are informational and can be shared, but the CANVAS
+        // itself must stay session-scoped — no global design bleed.
         const live = getLive();
-        if (live !== undefined && live.activity !== undefined) result.activity = live.activity;
-        if (live !== undefined) result.trace = getTrace();
-        if (live !== undefined && live.label) result.liveLabel = live.label;
-        if (live !== undefined && live.started && (result.empty || live.revision > (result.revision ?? 0))) {
-          result.started = true;
-          result.revision = live.revision;
-          result.approved = live.approved;
-          result.agentMode = live.agentMode;
-          result.updatedAt = live.updatedAt;
-          result.empty = false;
-          if (result.active !== undefined) {
-            result.active.revision = live.revision;
-            result.active.started = true;
-            result.active.approved = live.approved;
-            result.active.empty = false;
-          }
-        }
+        if (live !== undefined && live.activity !== undefined && live.activity.session === sessionId) result.activity = live.activity;
+        if (live !== undefined) result.trace = (getTrace() || []).filter((t) => t.session === undefined || t.session === sessionId);
         sendJson(res, 200, result);
       },
     }), 'designer-mode: state route');
@@ -650,6 +646,7 @@ export function apply(ctx) {
           return;
         }
         const sessionId = typeof payload.session === 'string' ? payload.session : '';
+        setSessionHint(sessionId);
         const action = payload.action;
         try {
           const state = ensureState(sessionId);
@@ -735,7 +732,7 @@ export function apply(ctx) {
           }
           if (action === 'trace-add') {
             const entry = payload.entry;
-            if (entry !== undefined && entry !== null && typeof entry === 'object') addTrace(entry);
+            if (entry !== undefined && entry !== null && typeof entry === 'object') addTrace({ ...entry, session: sessionId });
             notify(sessionId);
             sendJson(res, 200, { ok: true, trace: getTrace() });
             return;

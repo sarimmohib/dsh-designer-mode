@@ -15,6 +15,8 @@ const STORE_FILE = join(STORE_DIR, 'live.json');
 const EMPTY = { html: '', revision: 0, started: false, approved: false, updatedAt: 0, agentMode: false, label: '', activity: null, trace: [] };
 
 let live = load();
+let sessionHint = undefined;
+export function setSessionHint(session) { sessionHint = session; }
 function load() {
   try {
     if (existsSync(STORE_FILE)) {
@@ -35,7 +37,7 @@ function persist() {
 
 export function addTrace(entry) {
   if (!Array.isArray(live.trace)) live.trace = [];
-  live.trace.push({ ts: Date.now(), ...entry });
+  live.trace.push({ ts: Date.now(), ...entry, session: entry.session ?? sessionHint });
   if (live.trace.length > 200) live.trace = live.trace.slice(live.trace.length - 200);
   persist();
   return live.trace;
@@ -46,8 +48,8 @@ export function clearTrace() {
   return live.trace;
 }
 export function getTrace() { return Array.isArray(live.trace) ? live.trace : []; }
-export function setActivity(type, label = '') {
-  live.activity = { type, label, ts: Date.now() };
+export function setActivity(type, label = '', session = undefined) {
+  live.activity = { type, label, session, ts: Date.now() };
   live.updatedAt = Date.now();
   persist();
   return live;
