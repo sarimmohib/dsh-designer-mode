@@ -999,10 +999,28 @@ window.__ModuleLoader__.load({
         }
       }, []);
 
-      /* A new revision is a new document: element ids restart, so drop the selection. */
+      /* Keep working with selection after the design is marked done/approved.
+       * A republish remounts the iframe and restarts element ids, so rather
+       * than silently dropping the user's picks we clear them only when the
+       * tab actually changes. On a same-tab revision, let the new wiring's
+       * paint() re-resolve; stale picks simply render no overlay and can be
+       * immediately re-selected without any extra click to "unlock" the mode. */
+      const lastTabRef = React.useRef(activeId);
       React.useEffect(() => {
-        setSelected([]);
-      }, [cur.revision, activeId]);
+        if (lastTabRef.current !== activeId) {
+          lastTabRef.current = activeId;
+          setSelected([]);
+        }
+      }, [activeId]);
+
+      /* Approval must never disable interaction: force select mode back on if
+       * anything (agent or host) left the panel in navigate mode at approval. */
+      React.useEffect(() => {
+        if (cur.approved && modeRef.current === 'navigate') {
+          setMode('select');
+          void command(sessionId, 'view-set', { mode: 'select' });
+        }
+      }, [cur.approved]);
 
       const status = cur.approved ? 'approved' : cur.started ? 'live' : 'idle';
       const statusLabel = cur.approved ? t('ui.statusDone') : cur.started ? t('ui.statusLive') : t('ui.statusIdle');
