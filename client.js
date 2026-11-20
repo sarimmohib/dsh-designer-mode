@@ -1007,7 +1007,19 @@ window.__ModuleLoader__.load({
         const root = document.documentElement;
         if (immersive) root.setAttribute('data-designer-immersive', '');
         else root.removeAttribute('data-designer-immersive');
-        return () => root.removeAttribute('data-designer-immersive');
+        // Always provide a keyboard way out of immersive mode, since its toggle
+        // lives inside the sidebar that immersive mode hides.
+        const onKey = (e) => {
+          if (e.key === 'Escape' && root.hasAttribute('data-designer-immersive')) {
+            root.removeAttribute('data-designer-immersive');
+            setImmersive(false);
+          }
+        };
+        doc.defaultView.addEventListener('keydown', onKey, true);
+        return () => {
+          root.removeAttribute('data-designer-immersive');
+          doc.defaultView.removeEventListener('keydown', onKey, true);
+        };
       }, [immersive]);
 
       /* Detach when the panel unmounts. */
