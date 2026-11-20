@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 
 const STORE_DIR = join(process.env.DSH_HOME || join(process.env.USERPROFILE || '', '.dsh'), 'designer-mode');
 const STORE_FILE = join(STORE_DIR, 'live.json');
-const EMPTY = { html: '', revision: 0, started: false, approved: false, updatedAt: 0, agentMode: false, label: '', activity: null, trace: [] };
+const EMPTY = { activity: null, trace: [] };
 
 let live = load();
 let sessionHint = undefined;
@@ -20,7 +20,7 @@ function load() {
   try {
     if (existsSync(STORE_FILE)) {
       const parsed = JSON.parse(readFileSync(STORE_FILE, 'utf8'));
-      if (parsed && typeof parsed.html === 'string') return { ...EMPTY, ...parsed };
+      if (parsed && typeof parsed === 'object') return { ...EMPTY, ...parsed, trace: Array.isArray(parsed.trace) ? parsed.trace : [] };
     }
   } catch {}
   return { ...EMPTY };
@@ -54,35 +54,3 @@ export function setActivity(type, label = '', session = undefined) {
   return live;
 }
 export function getLive() { return live; }
-export function publish(html, options = {}) {
-  live = {
-    ...live,
-    html: String(html ?? ''),
-    revision: (live.revision || 0) + 1,
-    started: true,
-    approved: options.approved === true || live.approved === true,
-    agentMode: options.agentMode === true,
-    updatedAt: Date.now(),
-    label: typeof options.label === 'string' ? options.label : (options.label ?? live.label ?? ''),
-  };
-  persist();
-  return live;
-}
-export function clearLive() {
-  live = { ...EMPTY };
-  persist();
-  return live;
-}
-export function setApproved(value) {
-  live.approved = value === true;
-  live.updatedAt = Date.now();
-  persist();
-  return live;
-}
-export function setAgentMode(value) {
-  live.agentMode = value === true;
-  live.approved = value === true || live.approved;
-  live.updatedAt = Date.now();
-  persist();
-  return live;
-}
