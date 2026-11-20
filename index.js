@@ -1,16 +1,28 @@
 /**
  * Designer mode — Host half.
  *
- * Owns the per-session design state (the live HTML canvas), the agent tools that
- * publish it, the rule that keeps the agent generating interfaces until the user
- * marks the design done, and the small HTTP surface the Designer tab uses to
- * render the canvas, mark the design done, and forward a message into the chat.
+ * Per-session design state with multiple tabs, the agent tools that publish
+ * canvases, an agent-only unrestricted design mode, headless screenshots, and
+ * the HTTP surface the Designer tab uses to render and control everything.
  */
+import { execFile } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
+import { measureAnimation } from './anim.js';
 
-/** Tools a session may keep using while a design is still under revision. */
+const execFileAsync = promisify(execFile);
+
+/** Tools a session may keep using while a normal design is under revision. */
 const ALLOWED_WHILE_DESIGNING = new Set([
   'designer_update',
   'designer_state',
+  'designer_agent_begin',
+  'designer_screenshot',
+  'designer_animate',
+  // DSH bridges (including the Web GUI) dispatch calls through this wrapper.
+  'execute',
   'read',
   'grep',
   'glob',
@@ -30,25 +42,90 @@ const FRAME_PATH = '/designer-mode/frame';
 const STATE_PATH = '/designer-mode/state';
 const COMMAND_PATH = '/designer-mode/command';
 
-/** One session's design state. */
-function blankState() {
+const CHROME_CANDIDATES = [
+  process.env.CHROME_PATH,
+  'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+].filter((value) => typeof value === 'string' && value !== '');
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+function blankTab(name, options = {}) {
   return {
+    id: options.id ?? '',
+    name: name || 'Design',
     html: '',
     revision: 0,
-    started: false,
-    approved: false,
+    started: options.started === true,
+    approved: options.approved === true,
+    agentMode: options.agentMode === true,
     updatedAt: 0,
   };
 }
 
-function publicState(state) {
-  if (state === undefined) return { started: false, approved: false, revision: 0, updatedAt: 0, empty: true };
+function blankState() {
+  const first = blankTab('Design 1');
+  first.id = 'tab-1';
+  return { tabs: [first], activeTabId: 'tab-1', seq: 2, ratio: 'fill', mode: 'select', reloadSeq: 0, selected: [], selectionClearSeq: 0 };
+}
+
+function activeTab(state) {
+  if (state === undefined) return undefined;
+  return state.tabs.find((tab) => tab.id === state.activeTabId) ?? state.tabs[0];
+}
+
+function tabById(state, id) {
+  if (state === undefined || typeof id !== 'string') return undefined;
+  return state.tabs.find((tab) => tab.id === id);
+}
+
+function createTab(state, name, options = {}) {
+  const id = 'tab-' + (state.seq++);
+  const tab = blankTab(name || ('Design ' + (state.tabs.length + 1)), options);
+  tab.id = id;
+  state.tabs.push(tab);
+  if (options.activate !== false) state.activeTabId = id;
+  return tab;
+}
+
+function tabPublic(tab, state) {
   return {
-    started: state.started,
-    approved: state.approved,
-    revision: state.revision,
-    updatedAt: state.updatedAt,
-    empty: state.html === '',
+    id: tab.id,
+    name: tab.name,
+    revision: tab.revision,
+    started: tab.started,
+    approved: tab.approved,
+    empty: tab.html === '',
+    updatedAt: tab.updatedAt,
+    active: state.activeTabId === tab.id,
+  };
+}
+
+function publicState(state) {
+  if (state === undefined) {
+    return {
+      started: false, approved: false, revision: 0, updatedAt: 0,
+      empty: true, agentMode: false,
+      active: { id: '', name: '', revision: 0, started: false, approved: false, empty: true, updatedAt: 0, active: true },
+      tabs: [],
+      view: { ratio: 'fill', mode: 'select', reloadSeq: 0, selected: [], selectionClearSeq: 0 },
+      animation: null,
+    };
+  }
+  const tab = activeTab(state);
+  return {
+    started: tab.started,
+    approved: tab.approved,
+    revision: tab.revision,
+    updatedAt: tab.updatedAt,
+    empty: tab.html === '',
+    agentMode: tab.agentMode,
+    active: tabPublic(tab, state),
+    tabs: state.tabs.map((entry) => tabPublic(entry, state)),
+    view: { ratio: state.ratio ?? 'fill', mode: state.mode ?? 'select', reloadSeq: state.reloadSeq ?? 0, selected: state.selected ?? [], selectionClearSeq: state.selectionClearSeq ?? 0 },
+    animation: state.animation ?? null,
   };
 }
 
@@ -74,7 +151,6 @@ function sendJson(res, status, value) {
   res.end(body);
 }
 
-
 export const inject = ['tools', 'systemPrompt'];
 
 export function apply(ctx) {
@@ -99,53 +175,117 @@ export function apply(ctx) {
     for (const resolve of list) resolve();
   };
 
-  const writeCanvas = (sessionId, html) => {
+  const writeCanvas = (sessionId, html, tabId, name) => {
     const state = ensureState(sessionId);
-    state.html = html;
-    state.revision += 1;
-    state.started = true;
-    state.updatedAt = Date.now();
+    let tab = tabId === undefined ? activeTab(state) : tabById(state, tabId);
+    if (tab === undefined) {
+      const id = tabId === undefined ? 'tab-' + (state.seq++) : tabId;
+      tab = blankTab(name || (tabId || ('Design ' + (state.tabs.length + 1))), { id });
+      state.tabs.push(tab);
+      state.activeTabId = id;
+      const n = Number(String(id).replace(/\D/g, ''));
+      if (Number.isFinite(n)) state.seq = Math.max(state.seq, n + 1);
+    }
+    tab.html = String(html ?? '');
+    tab.revision += 1;
+    tab.started = true;
+    tab.updatedAt = Date.now();
     notify(sessionId);
+    return tab;
+  };
+
+  const agentBegin = (sessionId, name) => {
+    const state = ensureState(sessionId);
+    const tab = createTab(state, name || 'Agent design', { started: true, approved: true, agentMode: true });
+    tab.updatedAt = Date.now();
+    notify(sessionId);
+    return tab;
+  };
+
+  const start = (sessionId) => {
+    const state = ensureState(sessionId);
+    const tab = activeTab(state);
+    if (tab !== undefined && !tab.started) {
+      tab.started = true;
+      tab.updatedAt = Date.now();
+    }
     return state;
   };
 
   const approve = async (sessionId) => {
     const state = ensureState(sessionId);
-    state.approved = true;
-    state.updatedAt = Date.now();
+    const tab = activeTab(state);
+    if (tab !== undefined) {
+      tab.approved = true;
+      tab.updatedAt = Date.now();
+    }
     notify(sessionId);
     post(sessionId, 'The user marked the design as done. Designer mode stays on as a reference: you may now implement this design in the project with the normal tools.');
     return state;
   };
 
-  const start = (sessionId) => {
-    const state = ensureState(sessionId);
-    if (!state.started) {
-      state.started = true;
-      state.updatedAt = Date.now();
-    }
-    return state;
-  };
-
   let requestSeq = 0;
 
-  /**
-   * Deliver one message into a session through the Session Controller gateway,
-   * which records it with the durable `user` source the chat renders like any
-   * other typed message. `mode: 'steer'` lands it in the running turn.
-   */
   const post = async (sessionId, text) => {
     const controller = ctx.get('sessionController');
     if (controller === undefined) throw new Error('designer: session controller unavailable');
     requestSeq += 1;
     const result = await controller.prompt({
-      requestId: `designer-${Date.now()}-${requestSeq}`,
+      requestId: 'designer-' + Date.now() + '-' + requestSeq,
       sessionId,
       mode: 'steer',
       content: [{ type: 'text', text }],
     }, new AbortController().signal);
     return result;
   };
+
+  const screenshot = async (sessionId, options = {}) => {
+    const state = ensureState(sessionId);
+    const tab = activeTab(state);
+    const html = tab === undefined ? '' : tab.html;
+    if (html === '') return { error: 'No design on the active tab yet. Publish one with designer_update first.' };
+
+    const width = clamp(Number(options.width) || 900, 320, 2560);
+    const height = clamp(Number(options.height) || 1600, 320, 3200);
+    const tempDir = mkdtempSync(join(tmpdir(), 'designer-shot-'));
+    const htmlPath = join(tempDir, 'design.html');
+    writeFileSync(htmlPath, html, 'utf8');
+    const outPath = typeof options.path === 'string' && options.path !== ''
+      ? resolve(options.path)
+      : join(tempDir, 'design.png');
+    mkdirSync(dirname(outPath), { recursive: true });
+
+    const chrome = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
+    if (chrome === undefined) {
+      return { error: 'No headless Chrome or Edge executable found. Set CHROME_PATH to one.' };
+    }
+    const sep = String.fromCharCode(92);
+    const fileUrl = 'file:///' + htmlPath.split(sep).join('/');
+    const args = [
+      '--headless=new', '--disable-gpu', '--no-sandbox', '--hide-scrollbars',
+      '--force-device-scale-factor=1',
+      '--window-size=' + width + ',' + height,
+      '--screenshot=' + outPath,
+      fileUrl,
+    ];
+    try {
+      await execFileAsync(chrome, args, { timeout: 45000, windowsHide: true, maxBuffer: 2 * 1024 * 1024 });
+    } catch (error) {
+      if (!existsSync(outPath)) {
+        return { error: 'Screenshot failed: ' + String(error?.message ?? error) };
+      }
+    }
+    if (!existsSync(outPath)) return { error: 'Screenshot produced no file.' };
+    const bytes = readFileSync(outPath);
+    const result = {
+      path: outPath, width, height, bytes: bytes.length,
+      tab: tab.id, revision: tab.revision,
+    };
+    if (bytes.length <= 400000) result.base64 = bytes.toString('base64');
+    else result.note = 'PNG is too large to inline; open the path or use read_image.';
+    return result;
+  };
+
 
   /* ---------------------------------------------------------------- tools -- */
 
@@ -156,76 +296,216 @@ export function apply(ctx) {
     parameters: {
       html: { type: 'string', required: true, description: 'The complete HTML document for the canvas.' },
       note: { type: 'string', description: 'One short line about what changed.' },
+      tab: { type: 'string', description: 'Optional tab id. Targets an existing tab or creates a new one.' },
     },
     output: {
       schema: {
         type: 'object',
         additionalProperties: false,
         properties: {
-          revision: { type: 'number', description: 'Canvas revision after this update.' },
-          approved: { type: 'boolean', description: 'Whether the user already approved the design.' },
+          revision: { type: 'number' },
+          approved: { type: 'boolean' },
+          tab: { type: 'string' },
         },
-        required: ['revision', 'approved'],
+        required: ['revision', 'approved', 'tab'],
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `Canvas updated (revision ${value.revision}). ${value.approved ? 'The user already approved the design; you may implement it now.' : 'Keep iterating on the canvas until the user marks the design done.'}`,
+        text: 'Canvas updated (revision ' + value.revision + ', tab ' + value.tab + '). ' + (value.approved ? 'The user already approved the design; you may implement it now.' : 'Keep iterating on the canvas until the user marks the design done.'),
       }],
     },
     async execute(args, exec) {
       const agent = exec.agent;
       if (agent === undefined) throw new Error('designer_update needs a calling agent');
-      const state = writeCanvas(agent.session.id, String(args.html ?? ''));
-      return { revision: state.revision, approved: state.approved };
+      const tab = writeCanvas(agent.session.id, String(args.html ?? ''), args.tab, args.note);
+      return { revision: tab.revision, approved: tab.approved, tab: tab.id };
     },
   }), 'designer-mode: designer_update tool');
 
   ctx.effect(() => ctx.tools.register({
     name: 'designer_state',
-    description: 'Read the current designer-mode state of this session: whether a canvas exists, its revision, and whether the user approved the design.',
+    description: 'Read the current designer-mode state: tabs, active tab, revision, approval, and agent mode.',
     parameters: {},
     output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          started: { type: 'boolean', description: 'A canvas has been published.' },
-          approved: { type: 'boolean', description: 'The user marked the design done.' },
-          revision: { type: 'number', description: 'Current canvas revision.' },
-        },
-        required: ['started', 'approved', 'revision'],
-      },
-      render: (_args, value) => [{
-        type: 'text',
-        text: `designer: ${value.started ? `canvas at revision ${value.revision}` : 'no canvas yet'}; ${value.approved ? 'approved' : 'not approved'}.`,
-      }],
+      schema: { type: 'object' },
     },
     async execute(_args, exec) {
       const agent = exec.agent;
       const state = agent === undefined ? undefined : stateOf(agent.session.id);
+      if (state === undefined) return { started: false, approved: false, revision: 0, agentMode: false, tabs: [], active: { id: '', name: '' } };
+      const tab = activeTab(state);
       return {
-        started: state?.started === true,
-        approved: state?.approved === true,
-        revision: state?.revision ?? 0,
+        started: tab.started,
+        approved: tab.approved,
+        revision: tab.revision,
+        agentMode: tab.agentMode,
+        active: { id: tab.id, name: tab.name },
+        tabs: state.tabs.map((entry) => ({ id: entry.id, name: entry.name, revision: entry.revision, started: entry.started, approved: entry.approved, agentMode: entry.agentMode })),
       };
     },
   }), 'designer-mode: designer_state tool');
 
-  /* ------------------------------------------------------- design-first rule -- */
+  ctx.effect(() => ctx.tools.register({
+    name: 'designer_agent_begin',
+    description: 'Create a new design tab in agent mode: unrestricted (no design-first gate) and pre-approved (no user approval needed). Use when the agent needs to design something on its own, e.g. a logo or UI element in isolation. Publish with designer_update, then capture with designer_screenshot.',
+    parameters: { name: { type: 'string' } },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { id: { type: 'string' }, name: { type: 'string' } },
+        required: ['id', 'name'],
+      },
+    },
+    async execute(args, exec) {
+      const agent = exec.agent;
+      if (agent === undefined) throw new Error('designer_agent_begin needs a calling agent');
+      const tab = agentBegin(agent.session.id, typeof args.name === 'string' ? args.name : undefined);
+      return { id: tab.id, name: tab.name };
+    },
+  }), 'designer-mode: designer_agent_begin tool');
 
-  ctx.on('tools/pre-execute', async (exec, next) => {
-    const decision = await next();
-    if (decision.kind !== 'allow') return decision;
-    const agent = exec.agent;
-    if (agent === undefined) return decision;
-    const state = stateOf(agent.session.id);
-    if (state === undefined || !state.started || state.approved) return decision;
-    if (ALLOWED_WHILE_DESIGNING.has(exec.name)) return decision;
-    return {
-      kind: 'deny',
-      reason: `Designer mode is on and the user has not marked the design done, so only the canvas may change. Publish the interface with designer_update and revise it until the user approves; project and system tools stay locked until then. (${exec.name} denied)`,
-    };
-  });
+  ctx.effect(() => ctx.tools.register({
+    name: 'designer_screenshot',
+    description: 'Headlessly render and screenshot the active design tab (or a named tab) to a PNG file. Returns the file path, dimensions, byte size, and base64 when small enough. Use it to verify a published design without any browser UI.',
+    parameters: {
+      width: { type: 'number' },
+      height: { type: 'number' },
+      path: { type: 'string' },
+      tab: { type: 'string' },
+    },
+    output: { schema: { type: 'object' } },
+    async execute(args, exec) {
+      const agent = exec.agent;
+      if (agent === undefined) throw new Error('designer_screenshot needs a calling agent');
+      if (typeof args.tab === 'string' && args.tab !== '') {
+        const state = ensureState(agent.session.id);
+        if (tabById(state, args.tab) !== undefined) state.activeTabId = args.tab;
+      }
+      return screenshot(agent.session.id, args);
+    },
+  }), 'designer-mode: designer_screenshot tool');
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'designer_animate',
+    description: 'Test and measure UI animation smoothness headlessly using Chrome DevTools Protocol. Runs the active design (or supplied HTML) in headless Chrome, samples real requestAnimationFrame frame timings, and returns FPS, frame-time percentiles (p50/p95/p99), jank counts, and a 0-100 smoothness score. Use html to test an animation variant without publishing, or omit it to measure the current canvas. interaction is an optional JS snippet executed after warmup to trigger the animation.',
+    parameters: {
+      html: { type: 'string', description: 'Optional HTML to measure instead of the published canvas.' },
+      tab: { type: 'string', description: 'Optional tab id whose canvas to measure.' },
+      durationMs: { type: 'number', description: 'Measurement duration (200-20000, default 2000).' },
+      warmupMs: { type: 'number', description: 'Warmup before sampling (default 0).' },
+      width: { type: 'number' },
+      height: { type: 'number' },
+      interaction: { type: 'string', description: 'Optional JS to trigger the animation (eval in page).' },
+      label: { type: 'string', description: 'Label for this measurement.' },
+      save: { type: 'boolean', description: 'Save this score to the active tab state for the panel display.' },
+    },
+    output: { schema: { type: 'object' } },
+    async execute(args, exec) {
+      const agent = exec.agent;
+      if (agent === undefined) throw new Error('designer_animate needs a calling agent');
+      let html = typeof args.html === 'string' ? args.html : undefined;
+      if (html === undefined) {
+        const state = ensureState(agent.session.id);
+        const tab = typeof args.tab === 'string' ? tabById(state, args.tab) : activeTab(state);
+        html = tab === undefined ? '' : tab.html;
+      }
+      const result = await measureAnimation({
+        html,
+        durationMs: args.durationMs,
+        warmupMs: args.warmupMs,
+        width: args.width,
+        height: args.height,
+        interaction: args.interaction,
+        label: args.label,
+      });
+      if (result.error === undefined && args.save === true) {
+        const state = ensureState(agent.session.id);
+        state.animation = { score: result.score, verdict: result.verdict, fps: result.fps, p95Ms: result.p95Ms, label: result.label, updatedAt: Date.now() };
+        notify(agent.session.id);
+      }
+      return result;
+    },
+  }), 'designer-mode: designer_animate tool');
+
+  /* ------------------------------------------ headless control of UI features */
+
+  const VIEW_RATIOS = ['fill', 'phone', 'portrait', 'square', 'landscape', 'tv', 'wide'];
+  const VIEW_MODES = ['navigate', 'select', 'unselect'];
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'designer_canvas',
+    description: 'Control the canvas view headlessly: set the size ratio (fill/phone/portrait/square/landscape/tv/wide), the interaction mode (navigate/select/unselect), reload the frame, or clear the selected elements. This is the agent equivalent of the panel rail controls.',
+    parameters: {
+      ratio: { type: 'string', description: 'One of fill, phone, portrait, square, landscape, tv, wide.' },
+      mode: { type: 'string', description: 'One of navigate, select, unselect.' },
+      reload: { type: 'boolean', description: 'Reload the canvas frame (bumps its key).' },
+      clearSelection: { type: 'boolean', description: 'Clear all selected element chips.' },
+    },
+    output: { schema: { type: 'object' } },
+    async execute(args, exec) {
+      const agent = exec.agent;
+      if (agent === undefined) throw new Error('designer_canvas needs a calling agent');
+      const state = ensureState(agent.session.id);
+      const applied = {};
+      if (typeof args.ratio === 'string' && VIEW_RATIOS.includes(args.ratio)) {
+        state.ratio = args.ratio; applied.ratio = state.ratio;
+      }
+      if (typeof args.mode === 'string' && VIEW_MODES.includes(args.mode)) {
+        state.mode = args.mode; applied.mode = state.mode;
+      }
+      if (args.reload === true) {
+        state.reloadSeq = (state.reloadSeq ?? 0) + 1; applied.reloadSeq = state.reloadSeq;
+      }
+      if (args.clearSelection === true) {
+        state.selected = [];
+        state.selectionClearSeq = (state.selectionClearSeq ?? 0) + 1;
+        applied.selectionClearSeq = state.selectionClearSeq;
+      }
+      notify(agent.session.id);
+      return { ok: true, applied, view: publicState(state).view };
+    },
+  }), 'designer-mode: designer_canvas tool');
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'designer_tab',
+    description: 'Headlessly control design tabs: create, select, close, or rename a tab. Equivalent to the panel tab bar.',
+    parameters: {
+      action: { type: 'string', required: true, description: 'new | select | close | rename' },
+      id: { type: 'string', description: 'Target tab id for select/close/rename.' },
+      name: { type: 'string', description: 'Name for a new tab or rename.' },
+    },
+    output: { schema: { type: 'object' } },
+    async execute(args, exec) {
+      const agent = exec.agent;
+      if (agent === undefined) throw new Error('designer_tab needs a calling agent');
+      const state = ensureState(agent.session.id);
+      const action = String(args.action ?? '');
+      let target;
+      if (action === 'new') {
+        target = createTab(state, typeof args.name === 'string' ? args.name : undefined);
+      } else if (action === 'select') {
+        if (tabById(state, args.id) !== undefined) state.activeTabId = args.id;
+      } else if (action === 'close') {
+        if (state.tabs.length > 1) {
+          const index = state.tabs.findIndex((tab) => tab.id === args.id);
+          if (index >= 0) {
+            state.tabs.splice(index, 1);
+            if (state.activeTabId === args.id) state.activeTabId = state.tabs[Math.min(index, state.tabs.length - 1)].id;
+          }
+        }
+      } else if (action === 'rename') {
+        target = tabById(state, args.id);
+        if (target !== undefined && typeof args.name === 'string' && args.name !== '') target.name = args.name;
+      } else {
+        return { ok: false, error: 'unknown action: ' + action };
+      }
+      notify(agent.session.id);
+      return { ok: true, tab: target === undefined ? undefined : { id: target.id, name: target.name }, state: publicState(state) };
+    },
+  }), 'designer-mode: designer_tab tool');
+
+  /* No design-first gate: agents are never restricted and can multitask. */
 
   /* ------------------------------------------------------- session guidance -- */
 
@@ -235,19 +515,19 @@ export function apply(ctx) {
     text: (context) => {
       const agent = context.agent;
       if (agent === undefined) return '';
-      const state = stateOf(agent.session.id);
-      if (state === undefined || !state.started) return '';
-      if (state.approved) {
-        return 'Designer mode: the user approved the canvas design. Implement it in the project normally; designer_update still replaces the canvas when the user asks for design changes.';
-      }
+      const tab = activeTab(stateOf(agent.session.id));
+      if (tab === undefined || !tab.started) return '';
       return [
-        'DESIGNER MODE IS ON for this session.',
-        `The live canvas is at revision ${state.revision}.`,
-        'Rules while designer mode is on:',
-        '1. Your job is the interface itself: call designer_update with one complete, self-contained HTML document (inline CSS and SVG, system fonts, no external assets) for every visual change. The user sees it render live in the Designer tab.',
-        '2. Do not write, edit, run, or delegate project work; those tools are denied until the user marks the design done. Read-only tools are fine.',
-        '3. The user selects elements on the canvas in three modes: Navigate (taps ignored), Select (each tap adds that element), and Unselect (each tap removes it). Their message lists every selected element in the order they picked it — change exactly those elements and republish the whole document.',
-        '4. Keep iterating on the canvas until the user marks the design as done. Only then implement it in the project.',
+        'DESIGNER MODE IS ON for this session (tab ' + tab.name + ', revision ' + tab.revision + ').',
+        'You are UNRESTRICTED: there is no design-first gate and no user approval is required. You may freely work on other tasks, use all tools, or hand the design work to a subagent while you continue elsewhere.',
+        'Designer tools:',
+        '- designer_update(html, note?, tab?) publishes a complete self-contained HTML document to the canvas.',
+        '- designer_state() reads tabs, active tab, revision, and view state.',
+        '- designer_screenshot(width?, height?, path?, tab?) headlessly captures the canvas to a PNG.',
+        '- designer_agent_begin(name?) creates a fresh isolated design tab.',
+        '- designer_tab(action, id?, name?) with action new|select|close|rename controls tabs headlessly.',
+        '- designer_canvas(ratio?, mode?, reload?, clearSelection?) controls the panel rail headlessly: ratios fill/phone/portrait/square/landscape/tv/wide, modes navigate/select/unselect.',
+        'The user sees published HTML live in the Designer tab. In Select/Unselect modes their taps produce ordered element selections; change exactly those elements and republish the whole document.',
       ].join(String.fromCharCode(10));
     },
   }), 'designer-mode: canvas guidance');
@@ -266,23 +546,19 @@ export function apply(ctx) {
           return { kind: 'success', text: 'Designer mode off.' };
         }
         start(agent.session.id);
-        return {
-          kind: 'success',
-          text: 'Designer mode on. Ask for an interface; it renders live in the Designer tab of the right sidebar. Use /designer off to leave.',
-        };
+        return { kind: 'success', text: 'Designer mode on. Ask for an interface; it renders live in the Designer tab of the right sidebar. Use /designer off to leave.' };
       },
     }), 'designer-mode: /designer command');
   });
 
   /* ------------------------------------------------------------------ web -- */
 
-  const renderFrame = (sessionId) => {
+  const renderFrame = (sessionId, tabId) => {
     const state = stateOf(sessionId);
-    const body = state === undefined || state.html === ''
+    const tab = tabId === undefined || tabId === '' ? activeTab(state) : tabById(state, tabId);
+    const body = tab === undefined || tab.html === ''
       ? '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{height:100%;margin:0;font:14px/1.5 system-ui,sans-serif;color:#6b7280;display:flex;align-items:center;justify-content:center;background:#faf9f7}</style></head><body>No design yet.</body></html>'
-      : state.html;
-    /* Interaction lives in the panel (same-origin contentDocument wiring).
-     * Injecting a second script here would double-handle every tap. */
+      : tab.html;
     return body;
   };
 
@@ -293,7 +569,7 @@ export function apply(ctx) {
       handler: (req, res) => {
         const url = new URL(req.url ?? '/', 'http://127.0.0.1');
         const sessionId = url.searchParams.get('session') ?? '';
-        const html = renderFrame(sessionId);
+        const html = renderFrame(sessionId, url.searchParams.get('tab') ?? undefined);
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
           'cache-control': 'no-store',
@@ -326,15 +602,15 @@ export function apply(ctx) {
         try {
           payload = JSON.parse(await readBody(req));
         } catch (error) {
-          sendJson(res, 400, { ok: false, error: `bad request: ${String(error?.message ?? error)}` });
+          sendJson(res, 400, { ok: false, error: 'bad request: ' + String(error?.message ?? error) });
           return;
         }
         const sessionId = typeof payload.session === 'string' ? payload.session : '';
         const action = payload.action;
         try {
+          const state = ensureState(sessionId);
           if (action === 'start') {
-            start(sessionId);
-            sendJson(res, 200, { ok: true, state: publicState(stateOf(sessionId)) });
+            sendJson(res, 200, { ok: true, state: publicState(start(sessionId)) });
             return;
           }
           if (action === 'done') {
@@ -352,7 +628,81 @@ export function apply(ctx) {
             sendJson(res, 200, { ok: true });
             return;
           }
-          sendJson(res, 400, { ok: false, error: `unknown action: ${String(action)}` });
+          if (action === 'tab-new') {
+            createTab(state, typeof payload.name === 'string' ? payload.name : undefined);
+            notify(sessionId);
+            sendJson(res, 200, { ok: true, state: publicState(state) });
+            return;
+          }
+          if (action === 'tab-select') {
+            if (tabById(state, payload.id) !== undefined) {
+              state.activeTabId = payload.id;
+              notify(sessionId);
+            }
+            sendJson(res, 200, { ok: true, state: publicState(state) });
+            return;
+          }
+          if (action === 'tab-close') {
+            if (state.tabs.length > 1) {
+              const index = state.tabs.findIndex((tab) => tab.id === payload.id);
+              if (index >= 0) {
+                state.tabs.splice(index, 1);
+                if (state.activeTabId === payload.id) {
+                  state.activeTabId = state.tabs[Math.min(index, state.tabs.length - 1)].id;
+                }
+                notify(sessionId);
+              }
+            }
+            sendJson(res, 200, { ok: true, state: publicState(state) });
+            return;
+          }
+          if (action === 'tab-rename') {
+            const tab = tabById(state, payload.id);
+            if (tab !== undefined && typeof payload.name === 'string' && payload.name !== '') {
+              tab.name = payload.name;
+              notify(sessionId);
+            }
+            sendJson(res, 200, { ok: true, state: publicState(state) });
+            return;
+          }
+          if (action === 'agent-begin') {
+            agentBegin(sessionId, typeof payload.name === 'string' ? payload.name : undefined);
+            sendJson(res, 200, { ok: true, state: publicState(state) });
+            return;
+          }
+          if (action === 'animate') {
+            const tab = activeTab(state);
+            const html = tab === undefined ? '' : tab.html;
+            const result = await measureAnimation({
+              html,
+              durationMs: payload.durationMs,
+              warmupMs: payload.warmupMs,
+              width: payload.width,
+              height: payload.height,
+              interaction: payload.interaction,
+              label: payload.label,
+            });
+            if (result.error === undefined) {
+              state.animation = { score: result.score, verdict: result.verdict, fps: result.fps, p95Ms: result.p95Ms, label: result.label, updatedAt: Date.now() };
+              notify(sessionId);
+            }
+            sendJson(res, 200, { ok: result.error === undefined, result, state: publicState(state) });
+            return;
+          }
+          if (action === 'view-set') {
+            if (typeof payload.ratio === 'string') state.ratio = payload.ratio;
+            if (typeof payload.mode === 'string') state.mode = payload.mode;
+            if (payload.reload === true) state.reloadSeq = (state.reloadSeq ?? 0) + 1;
+            if (payload.clearSelection === true) {
+              state.selected = [];
+              state.selectionClearSeq = (state.selectionClearSeq ?? 0) + 1;
+            }
+            if (Array.isArray(payload.selected)) state.selected = payload.selected;
+            notify(sessionId);
+            sendJson(res, 200, { ok: true, state: publicState(state) });
+            return;
+          }
+          sendJson(res, 400, { ok: false, error: 'unknown action: ' + String(action) });
         } catch (error) {
           sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
         }

@@ -41,7 +41,14 @@ window.__ModuleLoader__.load({
       'ui.modeSelectHint': '点击加入',
       'ui.modeUnselectHint': '点击移除',
       'ui.selectedCount': '已选 {count}',
+      'ui.nothing': '还没有选中元素。',
       'ui.remove': '移出选择',
+      'ui.prompt': '提示词',
+      'ui.copy': '复制',
+      'ui.copied': '已复制',
+      'ui.canvasTitle': '设计画布',
+      'ui.selection': '选择',
+      'ui.selectionHint': '点击加入。已选元素保持选中。',
       'ui.picked': '已选 {count}',
     };
 
@@ -78,12 +85,41 @@ window.__ModuleLoader__.load({
       'ui.modeSelectHint': 'Tap adds',
       'ui.modeUnselectHint': 'Tap removes',
       'ui.selectedCount': '{count} selected',
+      'ui.nothing': 'Nothing selected yet.',
       'ui.remove': 'Remove from selection',
+      'ui.prompt': 'Prompt',
+      'ui.copy': 'Copy',
+      'ui.copied': 'Copied',
+      'ui.canvasTitle': 'Designer canvas',
+      'ui.selection': 'Selection',
+      'ui.selectionHint': 'Tap adds. Already picked stay picked.',
       'ui.picked': '{count} picked',
     };
 
     const ACCENT = '#c8732f';
     const SLATE = '#6b7f95';
+
+    /** Canvas size presets. w/h = null means fill the panel exactly. */
+    const RATIOS = {
+      fill: { label: 'Full screen', short: 'Fill', tiny: 'Full', w: null, h: null },
+      phone: { label: 'Mobile 9:16', short: 'Phone', tiny: 'Ph', w: 9, h: 16 },
+      portrait: { label: 'Portrait 3:4', short: 'Port', tiny: 'Pt', w: 3, h: 4 },
+      square: { label: 'Square 1:1', short: 'Sq', tiny: 'Sq', w: 1, h: 1 },
+      landscape: { label: 'Landscape 3:2', short: 'Land', tiny: 'Lnd', w: 3, h: 2 },
+      tv: { label: 'TV 16:9', short: 'TV', tiny: 'TV', w: 16, h: 9 },
+      wide: { label: 'Ultra-wide 21:9', short: 'Wide', tiny: 'Wd', w: 21, h: 9 },
+    };
+    const FRAME_MARGIN = 12;
+    const isFill = (preset) => preset.w === null || preset.h === null;
+
+    /** Largest w×h box with the preset ratio that fits the available canvas (fit-contained). */
+    function fitSize(availableW, availableH, preset) {
+      const r = preset.w / preset.h;
+      if (availableW / availableH > r) {
+        return { w: Math.floor(availableH * r), h: Math.floor(availableH) };
+      }
+      return { w: Math.floor(availableW), h: Math.floor(availableW / r) };
+    }
 
     const css = [
       '[data-designer-panel] {',
@@ -93,18 +129,23 @@ window.__ModuleLoader__.load({
       '  -webkit-font-smoothing: antialiased;',
       '}',
       '[data-designer-panel] [data-designer-bar] {',
-      '  flex: none; display: flex; align-items: center; gap: 7px; padding: 6px 10px;',
+      '  flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 10px;',
       '  border-bottom: 1px solid #262420;',
+      '}',
+      '[data-designer-panel] [data-designer-status] {',
+      '  display: inline-flex; align-items: center; gap: 9px; min-width: 0;',
+      '  margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .01em; color: #f4f0e8;',
+      '  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;',
+      '}',
+      '[data-designer-panel] [data-designer-status] span {',
+      '  color: #7b756a; font-weight: 400;',
       '}',
       '[data-designer-panel] [data-designer-dot] {',
       '  width: 7px; height: 7px; border-radius: 50%; flex: none; background: #6b665b;',
       '  transition: background .18s;',
       '}',
       '[data-designer-panel] [data-designer-dot][data-live] { background: #ff5a2e; }',
-      '[data-designer-panel] [data-designer-dot][data-approved] { background: #2f8f5b; }',
-      '[data-designer-panel] [data-designer-bar] button[data-primary][data-approved] {',
-      '  background: #2f8f5b; border-color: #2f8f5b;',
-      '}',
+      '[data-designer-panel] [data-designer-dot][data-approved] { background: #ff5a2e; }',
       '[data-designer-panel] [data-designer-spacer] { flex: 1; }',
       '[data-designer-panel] [data-designer-pill] {',
       '  flex: none; display: inline-flex; align-items: baseline; gap: 6px;',
@@ -115,8 +156,8 @@ window.__ModuleLoader__.load({
       '  color: #f4f0e8; font-size: 13px; font-weight: 650;',
       '}',
       '[data-designer-panel] [data-designer-bar] button {',
-      '  flex: none; height: 30px; padding: 0 10px; border-radius: 8px; cursor: pointer;',
-      '  font: inherit; font-size: 11.5px; font-weight: 550;',
+      '  flex: none; height: 24px; padding: 0 7px; border-radius: 6px; cursor: pointer;',
+      '  font: inherit; font-size: 11px; font-weight: 550;',
       '  border: 1px solid #2e2b25; background: transparent; color: #d9d3c6;',
       '  display: inline-flex; align-items: center; gap: 5px;',
       '}',
@@ -126,17 +167,55 @@ window.__ModuleLoader__.load({
       '}',
       '[data-designer-panel] [data-designer-bar] button[data-primary]:hover { background: #ff6b41; }',
       '[data-designer-panel] [data-designer-bar] button:disabled { opacity: .35; cursor: default; border-color: #2e2b25; }',
-      '[data-designer-panel] [data-designer-bar] button[data-icon] { width: 30px; padding: 0; justify-content: center; }',
+      '[data-designer-panel] [data-designer-bar] button[data-icon] { width: 24px; padding: 0; justify-content: center; }',
+      '/* tab bar */',
+      '[data-designer-panel] [data-designer-tabs] {',
+      '  flex: none; display: flex; align-items: center; gap: 4px; overflow-x: auto;',
+      '  padding: 5px 8px; border-bottom: 1px solid #262420; background: #15140f; scrollbar-width: none;',
+      '}',
+      '[data-designer-panel] [data-designer-tabs]::-webkit-scrollbar { display: none; }',
+      '[data-designer-panel] [data-designer-tabs] button {',
+      '  flex: none; height: 24px; padding: 0 7px; border-radius: 6px; cursor: pointer;',
+      '  font: inherit; font-size: 11px; color: #a9a294; border: 1px solid #2e2b25;',
+      '  background: transparent; display: inline-flex; align-items: center; gap: 5px;',
+      '}',
+      '[data-designer-panel] [data-designer-tabs] button:hover { border-color: #ff5a2e; color: #f4f0e8; }',
+      '[data-designer-panel] [data-designer-tabs] button[data-active] {',
+      '  background: #2a2118; border-color: #ff5a2e; color: #f4f0e8;',
+      '}',
+      '[data-designer-panel] [data-designer-tabs] [data-tab-name] {',
+      '  max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;',
+      '}',
+      '[data-designer-panel] [data-designer-tabs] [data-tab-close] {',
+      '  height: auto; padding: 0 1px; min-width: 0; border: 0; background: transparent;',
+      '  color: #7b756a; font-size: 13px; line-height: 1;',
+      '}',
+      '[data-designer-panel] [data-designer-tabs] [data-tab-close]:hover { color: #ff8a65; }',
       '[data-designer-panel] [data-designer-canvas] {',
       '  flex: 1; min-height: 0; position: relative; overflow: auto; background: #0d0c0a;',
-      '  display: flex; align-items: center; justify-content: center; padding: 16px;',
-      '  background-image: radial-gradient(circle at 1px 1px, rgba(244,240,232,.07) 1px, transparent 0);',
-      '  background-size: 22px 22px;',
+      '  display: flex; align-items: center; justify-content: safe center; padding: 6px; overscroll-behavior: contain;',
+      '}',
+      '[data-designer-panel] [data-designer-frame] {',
+      '  flex: none; position: relative; max-width: 100%; margin: 0 auto;',
+      '  border-radius: 10px; box-shadow: 0 12px 40px -16px #000, 0 0 0 1px #2b2822;',
       '}',
       '[data-designer-panel] [data-designer-canvas] iframe {',
-      '  width: 100%; max-width: 344px; aspect-ratio: 9 / 16; max-height: 100%;',
-      '  border: 0; border-radius: 14px; display: block; background: #f6f2e9;',
-      '  box-shadow: 0 24px 60px -20px #000, 0 0 0 1px #2b2822;',
+      '  position: absolute; top: 0; left: 0; width: 100%; height: 100%;',
+      '  border: 0; border-radius: 10px; display: block; background: #f6f2e9;',
+      '  box-shadow: 0 12px 40px -16px #000, 0 0 0 1px #2b2822;',
+      '}',
+      '[data-designer-panel] [data-designer-ratios] {',
+      '  flex: none; display: flex; gap: 4px; overflow-x: auto; padding: 6px 10px;',
+      '  border-top: 1px solid #262420; background: #171612; scrollbar-width: none;',
+      '}',
+      '[data-designer-panel] [data-designer-ratios]::-webkit-scrollbar { display: none; }',
+      '[data-designer-panel] [data-designer-ratios] button {',
+      '  flex: none; height: 22px; padding: 0 8px; border-radius: 6px; cursor: pointer;',
+      '  font: inherit; font-size: 10px; font-weight: 550; color: #a9a294;',
+      '  border: 1px solid #2e2b25; background: transparent; white-space: nowrap;',
+      '}',
+      '[data-designer-panel] [data-designer-ratios] button[aria-pressed="true"] {',
+      '  background: #ff5a2e; border-color: #ff5a2e; color: #fff;',
       '}',
       '[data-designer-panel] [data-designer-empty] {',
       '  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;',
@@ -152,14 +231,34 @@ window.__ModuleLoader__.load({
       '[data-designer-panel] [data-designer-tray] {',
       '  flex: none; border-top: 1px solid #262420; background: #171612;',
       '}',
+      '[data-designer-panel] [data-designer-tray-head] {',
+      '  display: flex; align-items: center; gap: 8px; padding: 9px 16px 7px;',
+      '}',
+      '[data-designer-panel] [data-designer-tray-label] {',
+      '  flex: none; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: #6b665b;',
+      '}',
+      '[data-designer-panel] [data-designer-tray-hint] {',
+      '  min-width: 0; font-size: 11px; color: #8b8374;',
+      '  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;',
+      '}',
+      '[data-designer-panel] [data-designer-tray-head] button {',
+      '  margin-left: auto; flex: none; height: auto; padding: 5px 9px; border-radius: 7px;',
+      '  font: inherit; font-size: 11px; font-weight: 550; cursor: pointer;',
+      '  border: 1px solid #2e2b25; background: transparent; color: #d9d3c6;',
+      '}',
+      '[data-designer-panel] [data-designer-tray-head] button:not(:disabled):hover { border-color: #ff5a2e; color: #fff; }',
+      '[data-designer-panel] [data-designer-tray-head] button:disabled { opacity: .3; cursor: default; }',
       '[data-designer-panel] [data-designer-chips] {',
-      '  display: flex; gap: 7px; overflow-x: auto; padding: 0 16px 9px; scrollbar-width: none;',
+      '  display: flex; gap: 5px; overflow-x: auto; padding: 2px 10px 6px; scrollbar-width: none;',
       '}',
       '[data-designer-panel] [data-designer-chips]::-webkit-scrollbar { display: none; }',
+      '[data-designer-panel] [data-designer-nothing] {',
+      '  padding: 3px 16px 9px; font-size: 11.5px; color: #6b665b; white-space: nowrap;',
+      '}',
       '[data-designer-panel] [data-designer-chip] {',
       '  flex: none; display: flex; align-items: center; gap: 7px; cursor: pointer;',
       '  background: #221f19; border: 1px solid #332f27; border-radius: 10px;',
-      '  padding: 5px 8px 5px 6px; font: inherit; text-align: left; color: inherit;',
+      '  padding: 3px 6px 3px 4px; font: inherit; text-align: left; color: inherit;',
       '}',
       '[data-designer-panel] [data-designer-chip]:hover { border-color: #ff5a2e; }',
       '[data-designer-panel] [data-designer-chip] i {',
@@ -175,19 +274,37 @@ window.__ModuleLoader__.load({
       '  flex: none; font-style: normal; font-size: 13px; line-height: 1; color: #8b8374;',
       '}',
       '/* prompt preview */',
+      '[data-designer-panel] [data-designer-prompt] {',
+      '  flex: none; display: flex; align-items: center; gap: 9px; padding: 8px 16px 9px;',
+      '  border-top: 1px solid #211f1a;',
+      '}',
+      '[data-designer-panel] [data-designer-prompt-label] {',
+      '  flex: none; font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: #5f5a51;',
+      '}',
+      '[data-designer-panel] [data-designer-prompt] code {',
+      '  flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;',
+      '  font-size: 10.5px; color: #c8c2b4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;',
+      '}',
+      '[data-designer-panel] [data-designer-copy] {',
+      '  flex: none; height: auto; padding: 4px 8px; border-radius: 6px; cursor: pointer;',
+      '  font: inherit; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;',
+      '  border: 1px solid #2e2b25; background: transparent; color: #a9a294;',
+      '}',
+      '[data-designer-panel] [data-designer-copy]:not(:disabled):hover { border-color: #ff5a2e; color: #fff; }',
+      '[data-designer-panel] [data-designer-copy]:disabled { opacity: .3; cursor: default; }',
       '/* composer */',
       '[data-designer-panel] [data-designer-composer] {',
-      '  flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 0 16px 10px;',
+      '  flex: none; display: flex; align-items: flex-end; gap: 6px; padding: 0 10px 8px;',
       '}',
       '[data-designer-panel] [data-designer-composer] textarea {',
-      '  flex: 1; min-width: 0; min-height: 38px; max-height: 120px; resize: none;',
-      '  font: inherit; font-size: 12.5px; line-height: 1.45; padding: 9px 11px;',
+      '  flex: 1; min-width: 0; min-height: 30px; max-height: 70px; resize: none;',
+      '  font: inherit; font-size: 12px; line-height: 1.35; padding: 6px 9px;',
       '  border-radius: 10px; border: 1px solid #2e2b25; background: #0d0c0a; color: #f4f0e8; outline: none;',
       '}',
       '[data-designer-panel] [data-designer-composer] textarea::placeholder { color: #6b665b; }',
       '[data-designer-panel] [data-designer-composer] textarea:focus { border-color: #ff5a2e; }',
       '[data-designer-panel] [data-designer-composer] button {',
-      '  flex: none; height: 38px; padding: 0 14px; border-radius: 9px; cursor: pointer;',
+      '  flex: none; height: 30px; padding: 0 11px; border-radius: 7px; cursor: pointer;',
       '  font: inherit; font-size: 12.5px; font-weight: 600;',
       '  border: 1px solid #2e2b25; background: transparent; color: #d9d3c6;',
       '}',
@@ -198,22 +315,22 @@ window.__ModuleLoader__.load({
       '/* thumb-zone mode bar */',
       '[data-designer-panel] [data-designer-modes] {',
       '  flex: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;',
-      '  margin: 0 12px 12px; padding: 4px; background: #0d0c0a;',
+      '  margin: 0 10px 8px; padding: 3px; background: #0d0c0a;',
       '  border: 1px solid #2a2721; border-radius: 13px;',
       '}',
       '[data-designer-panel] [data-designer-modes] button {',
       '  appearance: none; border: 0; background: transparent; color: #a39c8d; font: inherit;',
-      '  min-height: 50px; height: auto; padding: 0; border-radius: 10px; cursor: pointer;',
+      '  min-height: 30px; height: auto; padding: 0; border-radius: 8px; cursor: pointer;',
       '  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;',
       '  transition: background .14s, color .14s;',
       '}',
       '[data-designer-panel] [data-designer-modes] button:hover { background: transparent; color: #f4f0e8; }',
       '[data-designer-panel] [data-designer-mode-top] {',
-      '  display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;',
+      '  display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600;',
       '}',
       '[data-designer-panel] [data-designer-mode-top] svg { width: 14px; height: 14px; flex: none; }',
       '[data-designer-panel] [data-designer-modes] button small {',
-      '  font-size: 8.5px; font-weight: 500; letter-spacing: .07em; text-transform: uppercase;',
+      '  display: none;',
       '  opacity: .65; line-height: 1.25; text-align: center;',
       '}',
       '[data-designer-panel] [data-designer-modes] button[aria-pressed="true"][data-mode="navigate"] {',
@@ -226,36 +343,88 @@ window.__ModuleLoader__.load({
       '  background: #6b7f95; color: #fff;',
       '}',
       '[data-designer-panel] [data-designer-modes] button[aria-pressed="true"] small { opacity: .7; color: inherit; }',
-      /* Immersive: collapse the shell's tab strip for this panel so the canvas
-       * owns the screen. Scoped to the panel's own pane, and only while the
-       * flag is set by the toggle in this bar. */
-      'html[data-designer-immersive] [data-dockkit-strip] {',
-      '  display: none !important;',
-      '}',
-      'html[data-designer-immersive] [data-dockkit-pane] {',
-      '  border-radius: 0 !important;',
-      '}',
-      '[data-designer-panel] [data-designer-bar] button[aria-pressed="true"][data-icon] {',
+      'html[data-designer-immersive] [data-dockkit-strip] { display: none !important; }',
+      'html[data-designer-immersive] [data-dockkit-pane] { border-radius: 0 !important; }',
+      '[data-designer-panel] [data-designer-rail] button[aria-pressed="true"][data-icon] {',
       '  background: #ff5a2e; border-color: #ff5a2e; color: #fff;',
       '}',
       '[data-designer-panel] [data-designer-error] {',
       '  flex: none; padding: 0 16px 9px; font-size: 11px; color: #ff8a65;',
       '}',
-      /* single chips row; only rendered when something is selected */
-      '[data-designer-panel] [data-designer-tray] {',
-      '  flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px;',
-      '  border-top: 1px solid #262420; background: #171612;',
+      '/* canvas + vertical rail layout */',
+      '[data-designer-panel] [data-designer-workspace] {',
+      '  flex: 1; min-height: 0; display: flex; flex-direction: row;',
       '}',
-      '[data-designer-panel] [data-designer-clear] {',
-      '  flex: none; height: 24px; padding: 0 9px; border-radius: 7px; cursor: pointer;',
-      '  border: 1px solid #2e2b25; background: transparent; color: #d9d3c6;',
-      '  font: inherit; font-size: 10px; font-weight: 550; letter-spacing: .05em; text-transform: uppercase;',
+      '[data-designer-panel] [data-designer-rail] {',
+      '  flex: none; width: 46px; display: flex; flex-direction: column; gap: 6px;',
+      '  padding: 6px 4px; overflow-y: auto; overflow-x: hidden;',
+      '  border-right: 1px solid #262420; background: #12110e; scrollbar-width: none;',
       '}',
-      '[data-designer-panel] [data-designer-clear]:hover { border-color: #ff5a2e; color: #fff; }',
+      '[data-designer-panel] [data-designer-rail]::-webkit-scrollbar { display: none; }',
+      '[data-designer-panel] [data-designer-rail-group] {',
+      '  flex: none; display: flex; flex-direction: column; gap: 4px;',
+      '  padding-bottom: 6px; border-bottom: 1px solid #262420;',
+      '}',
+      '[data-designer-panel] [data-designer-rail] button {',
+      '  flex: none; width: 36px; min-height: 24px; padding: 2px 0; border-radius: 6px;',
+      '  font: inherit; font-size: 9px; font-weight: 600; color: #a9a294;',
+      '  border: 1px solid #2e2b25; background: transparent; cursor: pointer;',
+      '  display: flex; align-items: center; justify-content: center; gap: 2px;',
+      '}',
+      '[data-designer-panel] [data-designer-rail] button:hover { border-color: #ff5a2e; color: #fff; }',
+      '[data-designer-panel] [data-designer-rail] [data-designer-pill] {',
+      '  flex: none; width: 36px; min-height: 24px; padding: 2px 0;',
+      '  display: inline-flex; align-items: center; justify-content: center;',
+      '  font: inherit; font-size: 11px; font-weight: 600; color: #a9a294;',
+      '  border: 1px solid #2e2b25; border-radius: 6px; background: transparent;',
+      '  font-variant-numeric: tabular-nums; white-space: nowrap;',
+      '}',
+      '[data-designer-panel] [data-designer-rail] [data-designer-pill] b { font-size: 12px; font-weight: 650; color: #f4f0e8; }',
+      '[data-designer-panel] [data-designer-rail] [data-designer-anim] {',
+      '  flex: none; width: 36px; min-height: 24px; display: inline-flex; align-items: center;',
+      '  justify-content: center; border-radius: 6px; font-size: 11px; font-weight: 700;',
+      '  font-variant-numeric: tabular-nums; border: 1px solid #2e2b25;',
+      '  background: #12332a; color: #5ee0a0;',
+      '}',
+      '[data-designer-panel] [data-designer-rail] button[aria-pressed="true"],',
+      '[data-designer-panel] [data-designer-rail] button[data-active] {',
+      '  background: #ff5a2e; border-color: #ff5a2e; color: #fff;',
+      '}',
+      '[data-designer-panel] [data-designer-rail] button:disabled { opacity: .3; cursor: default; }',
+      '[data-designer-panel] [data-designer-rail] [data-designer-tabs] {',
+      '  flex-direction: column; overflow-y: auto; overflow-x: hidden; padding: 0;',
+      '  border: 0; background: transparent; gap: 4px;',
+      '}',
+      '[data-designer-panel] [data-designer-rail] [data-designer-tabs] button { width: 36px; min-height: 24px; }',
+      '[data-designer-panel] [data-designer-rail] [data-tab-name] { max-width: 14px; overflow: hidden; white-space: nowrap; }',
+      '[data-designer-panel] [data-designer-rail] [data-tab-close] { width: auto; min-width: 0; border: 0; padding: 0; font-size: 11px; color: #7b756a; }',
+      '[data-designer-panel] [data-designer-rail] [data-designer-ratios] {',
+      '  flex-direction: column; overflow-y: auto; overflow-x: hidden; padding: 0;',
+      '  border: 0; background: transparent; gap: 4px;',
+      '}',
+      '[data-designer-panel] [data-designer-rail] [data-designer-ratios] button { width: 36px; min-height: 24px; }',
+      '[data-designer-panel] [data-designer-rail] [data-designer-modes] {',
+      '  display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0;',
+      '  border: 0; background: transparent;',
+      '}',
+      '[data-designer-panel] [data-designer-rail] [data-designer-modes] button { width: 36px; min-height: 26px; }',
+      '[data-designer-panel] [data-designer-rail] [data-designer-modes] button small { display: none; }',
+      '[data-designer-panel] [data-designer-rail] [data-designer-mode-label] { display: none; }',
+      '[data-designer-panel] [data-designer-rail] [data-designer-tray] {',
+      '  flex: none; border: 0; background: transparent; width: 36px; overflow-y: auto;',
+      '}',
+      '[data-designer-panel] [data-designer-rail] [data-designer-chips] {',
+      '  flex-direction: column; overflow-y: auto; padding: 0; gap: 4px;',
+      '}',
+      '[data-designer-panel] [data-designer-rail] [data-designer-chip] { width: 36px; padding: 2px; justify-content: center; gap: 2px; }',
+      '[data-designer-panel] [data-designer-rail] [data-designer-chip] span { display: none; }',
+      '[data-designer-panel] [data-designer-rail] [data-designer-chip] i { width: 14px; height: 14px; font-size: 8px; }',
+      '[data-designer-panel] [data-designer-rail] [data-designer-chip] em { font-size: 11px; }',
+      '[data-designer-panel] [data-designer-canvas] { min-width: 0; }',
     ].join('\n');
 
     const stateUrl = (sessionId) => `/designer-mode/state?session=${encodeURIComponent(sessionId)}`;
-    const frameUrl = (sessionId, revision) => `/designer-mode/frame?session=${encodeURIComponent(sessionId)}&r=${revision}`;
+    const frameUrl = (sessionId, revision, tabId) => `/designer-mode/frame?session=${encodeURIComponent(sessionId)}&tab=${encodeURIComponent(tabId ?? '')}&r=${revision}`;
 
     /** POST one designer command; resolves the parsed body even on failure. */
     async function command(sessionId, action, extra) {
@@ -275,7 +444,7 @@ window.__ModuleLoader__.load({
 
     /** Poll one session's design state until unmount. */
     function useDesignState(sessionId) {
-      const [state, setState] = React.useState({ started: false, approved: false, revision: 0, empty: true, loaded: false });
+      const [state, setState] = React.useState({ started: false, approved: false, revision: 0, empty: true, loaded: false, tabs: [], active: null });
       React.useEffect(() => {
         let alive = true;
         const tick = async () => {
@@ -551,19 +720,75 @@ window.__ModuleLoader__.load({
 
     function DesignerPanel({ sessionId, t }) {
       const state = useDesignState(sessionId);
+      const cur = state.active ?? state;
+      const tabs = state.tabs ?? [];
+      const activeId = cur.id ?? tabs.find((tab) => tab.active)?.id ?? '';
       const [mode, setMode] = React.useState('select');
       const [selected, setSelected] = React.useState([]);
       const [draft, setDraft] = React.useState('');
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState('');
-      const [frameKey, setFrameKey] = React.useState(0);
+      const [animating, setAnimating] = React.useState(false);
+      const [animResult, setAnimResult] = React.useState(null);
       const [immersive, setImmersive] = React.useState(false);
+      const [frameKey, setFrameKey] = React.useState(0);
+      const [ratio, setRatio] = React.useState('fill');
+      const reloadRef = React.useRef(0);
+      const clearRef = React.useRef(0);
       const frameRef = React.useRef(null);
+      const canvasRef = React.useRef(null);
+      const [frameSize, setFrameSize] = React.useState({ w: 320, h: 480 });
       const editorRef = React.useRef(null);
       const selectedRef = React.useRef(selected);
       selectedRef.current = selected;
       const modeRef = React.useRef(mode);
       modeRef.current = mode;
+
+      /* Adopt view changes made headlessly by agents (designer_canvas). Only
+       * overwrite local state when the host value actually differs, so user
+       * clicks are not fought by the 1.5s poll. */
+      const view = state.view;
+      React.useEffect(() => {
+        if (view === undefined) return;
+        if (typeof view.ratio === 'string' && view.ratio !== ratio) setRatio(view.ratio);
+        if (typeof view.mode === 'string' && view.mode !== mode) setMode(view.mode);
+        if (typeof view.reloadSeq === 'number' && view.reloadSeq !== reloadRef.current) {
+          reloadRef.current = view.reloadSeq;
+          setFrameKey((value) => value + 1);
+        }
+        if (typeof view.selectionClearSeq === 'number' && view.selectionClearSeq !== clearRef.current) {
+          clearRef.current = view.selectionClearSeq;
+          setSelected([]);
+        }
+      }, [view]);
+
+      /** Keep the fixed-ratio frame fit-contained inside the canvas (letterbox). */
+      React.useLayoutEffect(() => {
+        const preset = RATIOS[ratio] ?? RATIOS.fill;
+        if (isFill(preset)) return undefined;
+        const el = canvasRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return undefined;
+        const measure = () => {
+          const cs = window.getComputedStyle(el);
+          const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+          const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+          const availW = el.clientWidth - padX - FRAME_MARGIN;
+          const availH = el.clientHeight - padY - FRAME_MARGIN;
+          if (availW <= 0 || availH <= 0) return;
+          setFrameSize(fitSize(availW, availH, preset));
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        return () => observer.disconnect();
+      }, [ratio]);
+
+      const ratioStyle = (id) => {
+        const preset = RATIOS[id] ?? RATIOS.fill;
+        return isFill(preset)
+          ? { width: '100%', height: '100%' }
+          : { width: frameSize.w + 'px', height: frameSize.h + 'px' };
+      };
 
       /** Live canvas wiring for the current frame document (same-origin). */
       const wiringRef = React.useRef(null);
@@ -597,20 +822,20 @@ window.__ModuleLoader__.load({
         wiringRef.current.paint();
       }, []);
 
-      /* Immersive: flag the product root so the panel's own tab strip can
-       * collapse and give the canvas the whole screen. Reversible, and the
-       * toggle that set it lives in this bar, so there is always a way back. */
+      /* Mode or selection changed: repaint the frame overlays. */
+      React.useEffect(() => {
+        wiringRef.current?.paint();
+      }, [mode, selected]);
+
+      /* Immersive: flag the product root so the shell's tab strip can collapse
+       * and give the canvas the whole screen. The toggle lives in this rail,
+       * so there is always a way back. */
       React.useEffect(() => {
         const root = document.documentElement;
         if (immersive) root.setAttribute('data-designer-immersive', '');
         else root.removeAttribute('data-designer-immersive');
         return () => root.removeAttribute('data-designer-immersive');
       }, [immersive]);
-
-      /* Mode or selection changed: repaint the frame overlays. */
-      React.useEffect(() => {
-        wiringRef.current?.paint();
-      }, [mode, selected]);
 
       /* Detach when the panel unmounts. */
       React.useEffect(() => () => {
@@ -623,10 +848,10 @@ window.__ModuleLoader__.load({
       /* A new revision is a new document: element ids restart, so drop the selection. */
       React.useEffect(() => {
         setSelected([]);
-      }, [state.revision]);
+      }, [cur.revision, activeId]);
 
-      const status = state.approved ? 'approved' : state.started ? 'live' : 'idle';
-      const statusLabel = state.approved ? t('ui.statusDone') : state.started ? t('ui.statusLive') : t('ui.statusIdle');
+      const status = cur.approved ? 'approved' : cur.started ? 'live' : 'idle';
+      const statusLabel = cur.approved ? t('ui.statusDone') : cur.started ? t('ui.statusLive') : t('ui.statusIdle');
 
       const start = async () => {
         setBusy(true);
@@ -636,6 +861,56 @@ window.__ModuleLoader__.load({
           setBusy(false);
         }
       };
+
+      /** Run a tab action, then refresh state right away (polling also continues). */
+      const tabCommand = async (action, extra) => {
+        setError('');
+        try {
+          await command(sessionId, action, extra);
+        } catch (cause) {
+          setError(String(cause?.message ?? cause));
+        }
+      };
+
+      /** Trigger a headless animation-smoothness measurement of the active canvas. */
+      const runAnimation = async () => {
+        setAnimating(true);
+        setError('');
+        try {
+          const result = await command(sessionId, 'animate', { durationMs: 2000 });
+          if (result.ok && result.result !== undefined) setAnimResult(result.result);
+          else setError(String(result.result?.error ?? result.error ?? 'measurement failed'));
+        } catch (cause) {
+          setError(String(cause?.message ?? cause));
+        } finally {
+          setAnimating(false);
+        }
+      };
+
+      /** Mirror a local view change to the host so the 1.5s poll cannot revert it,
+       *  and so agents reading state see the same values the user sees. */
+      const pushView = async (extra) => {
+        try {
+          const result = await command(sessionId, 'view-set', extra);
+          const v = result?.state?.view;
+          if (v !== undefined) {
+            if (typeof v.ratio === 'string') setRatio(v.ratio);
+            if (typeof v.mode === 'string') setMode(v.mode);
+            if (typeof v.reloadSeq === 'number') reloadRef.current = v.reloadSeq;
+            if (typeof v.selectionClearSeq === 'number') clearRef.current = v.selectionClearSeq;
+          }
+        } catch (cause) {
+          setError(String(cause?.message ?? cause));
+        }
+      };
+
+      const tabNew = () => {
+        const n = tabs.filter((tab) => /^Design [0-9]+$/.test(tab.name ?? '')).length + 1;
+        void tabCommand('tab-new', { name: 'Design ' + n });
+      };
+      const tabSelect = (id) => { if (id !== activeId) void tabCommand('tab-select', { id }); };
+      const tabClose = (event, id) => { event.stopPropagation(); void tabCommand('tab-close', { id }); };
+      const agentBegin = () => { void tabCommand('agent-begin', { name: 'Design ' + (tabs.length + 1) }); };
 
       const approve = async () => {
         setBusy(true);
@@ -693,59 +968,52 @@ window.__ModuleLoader__.load({
         'data-mode': id,
         'aria-pressed': mode === id ? 'true' : 'false',
         title: hint,
-        onClick: () => setMode(id),
-      }, h('span', { 'data-designer-mode-top': '' }, ICONS[id], label), h('small', null, hint));
+        onClick: () => { setMode(id); void pushView({ mode: id }); },
+      }, h('span', { 'data-designer-mode-top': '' }, ICONS[id], h('span', { 'data-designer-mode-label': '' }, label)));
 
-      const toolbar = h('div', { 'data-designer-bar': '' },
-        h('i', {
-          'data-designer-dot': '',
-          title: statusLabel,
-          'aria-label': statusLabel,
-          'data-live': status === 'live' ? '' : undefined,
-          'data-approved': status === 'approved' ? '' : undefined,
-        }),
-        h('span', { 'data-designer-spacer': '' }),
-        h('span', { 'data-designer-pill': '', title: statusLabel },
-          h('b', null, String(selected.length)),
-          t('ui.picked').replace('{count}', '').trim() || 'picked'),
-        h('button', {
-          type: 'button',
-          'data-icon': '',
-          'aria-pressed': immersive ? 'true' : 'false',
-          title: immersive ? t('ui.immersiveExit') : t('ui.immersive'),
-          'aria-label': immersive ? t('ui.immersiveExit') : t('ui.immersive'),
-          onClick: () => setImmersive((value) => !value),
-        }, h(ImmersiveIcon)),
-        h('button', {
-          type: 'button',
-          'data-icon': '',
-          title: t('ui.reload'),
-          'aria-label': t('ui.reload'),
-          onClick: () => setFrameKey((value) => value + 1),
-        }, h(ReloadIcon)),
-        state.approved
-          ? null
-          : h('button', {
-            type: 'button',
-            'data-primary': '',
-            'data-icon': '',
-            'data-approved': state.approved ? '' : undefined,
-            disabled: busy || !state.started,
-            title: t('ui.approve'),
-            'aria-label': t('ui.approve'),
-            onClick: () => void approve(),
-          }, h(CheckIcon)));
 
-      const canvas = h('div', { 'data-designer-canvas': '' },
-        h('iframe', {
-          key: `${state.revision}:${frameKey}`,
+      const ratioBar = h('div', { 'data-designer-ratios': '', role: 'group', 'aria-label': 'Canvas size' },
+        Object.keys(RATIOS).map((id) => h('button', {
+          key: id, type: 'button', 'data-ratio': id,
+          'aria-pressed': ratio === id ? 'true' : 'false',
+          title: RATIOS[id].label,
+          onClick: () => { setRatio(id); void pushView({ ratio: id }); },
+        }, RATIOS[id].short)));
+
+      const tabBar = h('div', { 'data-designer-tabs': '', role: 'tablist', 'aria-label': 'Designer tabs' },
+        tabs.map((tab) => h('button', {
+          key: tab.id,
+          type: 'button',
+          role: 'tab',
+          'data-tab': tab.id,
+          'data-active': tab.id === activeId ? '' : undefined,
+          'aria-selected': tab.id === activeId ? 'true' : 'false',
+          title: tab.name,
+          onClick: () => tabSelect(tab.id),
+        },
+          h('span', { 'data-tab-name': '' }, tab.active ? '● ' : '', tab.name ?? tab.id),
+          h('span', {
+            'data-tab-close': '',
+            role: 'button',
+            'aria-label': 'Close tab ' + (tab.name ?? tab.id),
+            title: 'Close tab',
+            onClick: (event) => tabClose(event, tab.id),
+          }, '×'))),
+        h('button', { type: 'button', 'data-tab-add': '', title: 'New design tab', 'aria-label': 'New design tab', onClick: tabNew }, '+'),
+        h('button', { type: 'button', 'data-tab-agent': '', title: 'Design with agent', 'aria-label': 'Design with agent', onClick: agentBegin }, 'Agent'));
+
+      const canvas = h('div', { 'data-designer-canvas': '', ref: canvasRef },
+        state.loaded && !cur.started ? null : h('div', {
+          'data-designer-frame': '', style: ratioStyle(ratio),
+        }, h('iframe', {
+          key: `${cur.revision}:${frameKey}:${activeId}`,
           ref: frameRef,
-          src: frameUrl(sessionId, `${state.revision}-${frameKey}`),
+          src: frameUrl(sessionId, `${cur.revision}-${frameKey}`, activeId),
           title: t('tab.title'),
-          sandbox: 'allow-scripts allow-same-origin allow-forms',
+          sandbox: 'allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads',
           onLoad: attach,
-        }),
-        state.loaded && !state.started
+        })),
+        state.loaded && !cur.started
           ? h('div', { 'data-designer-empty': '' },
             h('div', null,
               h('p', { style: { margin: '0 0 12px' } }, t('ui.empty')),
@@ -756,12 +1024,8 @@ window.__ModuleLoader__.load({
         setSelected((current) => current.filter((element) => element.id !== id));
       };
 
-      /* One chips row, and it only exists when something is picked — an empty
-       * tray costs vertical space on a phone for no information. */
-      const tray = selected.length === 0
-        ? null
-        : h('div', { 'data-designer-tray': '' },
-          h('div', { 'data-designer-chips': '' },
+      const tray = h('div', { 'data-designer-tray': '' },
+        h('div', { 'data-designer-chips': '' },
             selected.map((element, index) => h('button', {
               key: element.id,
               type: 'button',
@@ -771,12 +1035,7 @@ window.__ModuleLoader__.load({
             },
             h('i', null, String(index + 1)),
             h('span', null, nameOf(element)),
-            h('em', null, '×')))),
-          h('button', {
-            type: 'button',
-            'data-designer-clear': '',
-            onClick: () => setSelected([]),
-          }, t('ui.clear')));
+            h('em', null, '×')))));
 
       const composer = h('div', { 'data-designer-composer': '' },
         h('textarea', {
@@ -800,12 +1059,54 @@ window.__ModuleLoader__.load({
         modeButton('select', t('ui.modeSelect'), t('ui.modeSelectHint')),
         modeButton('unselect', t('ui.modeUnselect'), t('ui.modeUnselectHint')));
 
+      /* Everything except the text box lives in a thin vertical rail on the
+       * right of the canvas. The composer stays alone at the bottom. */
+      const animScore = animResult ?? state.animation;
+      const animBadge = animScore === null || animScore === undefined ? null
+        : h('span', {
+            'data-designer-anim': '',
+            title: 'Smoothness ' + animScore.score + '/100 (' + animScore.verdict + '), ' + animScore.fps + ' FPS, p95 ' + animScore.p95Ms + 'ms',
+          }, String(animScore.score));
+
+      const rail = h('div', { 'data-designer-rail': '' },
+        h('div', { 'data-designer-rail-group': '' }, tabBar),
+        h('div', { 'data-designer-rail-group': '' }, ratioBar),
+        h('div', { 'data-designer-rail-group': '' }, modeBar),
+        h('div', { 'data-designer-rail-group': '' }, tray),
+        h('div', { 'data-designer-rail-group': '' },
+          h('span', { 'data-designer-pill': '', title: statusLabel },
+            h('b', null, String(selected.length))),
+          h('button', {
+            type: 'button',
+            title: 'Test animation smoothness',
+            'aria-label': 'Test animation smoothness',
+            disabled: animating || !cur.started,
+            onClick: () => void runAnimation(),
+          }, animating ? '…' : 'Anim'),
+          animBadge,
+          h('button', {
+            type: 'button', 'data-icon': '',
+            'aria-pressed': immersive ? 'true' : 'false',
+            title: immersive ? t('ui.immersiveExit') : t('ui.immersive'),
+            'aria-label': immersive ? t('ui.immersiveExit') : t('ui.immersive'),
+            onClick: () => setImmersive((value) => !value),
+          }, h(ImmersiveIcon)),
+          h('button', {
+            type: 'button', title: t('ui.reload'), 'aria-label': t('ui.reload'),
+            onClick: () => { setFrameKey((value) => value + 1); void pushView({ reload: true }); },
+          }, 'Reload'),
+          cur.approved ? null : h('button', {
+            type: 'button', 'data-primary': '',
+            disabled: busy || !cur.started,
+            title: t('ui.approve'), 'aria-label': t('ui.approve'),
+            onClick: () => void approve(),
+          }, 'Done')));
+
+      const workspace = h('div', { 'data-designer-workspace': '' }, rail, canvas);
+
       return h('div', { 'data-designer-panel': '', 'data-designer-status-value': status, 'data-designer-mode': mode },
-        toolbar,
-        canvas,
-        tray,
+        workspace,
         composer,
-        modeBar,
         error === '' ? null : h('div', { 'data-designer-error': '' }, error));
     }
 
