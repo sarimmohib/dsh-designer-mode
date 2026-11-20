@@ -586,6 +586,77 @@ window.__ModuleLoader__.load({
         traceEvents.forEach((e) => tracePath(e.x, e.y, e.toX ?? e.x, e.toY ?? e.y, e.color));
       }
       function setTraceVisible(visible) { traceSvg.style.display = visible ? 'block' : 'none'; }
+
+      /* Continuous motion sampling: animated DOM elements AND the interior of
+       * <canvas> elements (games/animations often paint everything into one
+       * canvas, so there are no child DOM nodes to observe). We snapshot pixel
+       * data at intervals and record where content actually moved. */
+      const motionTargets = [];
+      let motionTimer = null;
+      function setupMotionTracking() {
+        const win = doc.defaultView;
+        if (!win) return;
+        // Animated CSS elements: those with a running animation/transition.
+        doc.querySelectorAll('*').forEach((el) => {
+          if (el === traceSvg || el === hoverBox || el === hoverTag) return;
+          const st = win.getComputedStyle(el);
+          const animated = (st.animationName && st.animationName !== 'none') || (st.transitionDuration && parseFloat(st.transitionDuration) > 0);
+          if (!animated) return;
+          const r = el.getBoundingClientRect();
+          motionTargets.push({ el, kind: 'dom', last: { x: r.x, y: r.y }, selector: (el.id ? '#' + el.id : el.tagName.toLowerCase()) });
+        });
+        // Canvas interiors: track a few sample points of pixel content.
+        doc.querySelectorAll('canvas').forEach((cv, ci) => {
+          const r = cv.getBoundingClientRect();
+          const ctx = cv.getContext && cv.getContext('2d');
+          motionTargets.push({ el: cv, kind: 'canvas', index: ci, ctx, last: null, lastFrame: null,
+            selector: 'canvas' + (cv.id ? '#' + cv.id : '') });
+        });
+        if (motionTargets.length === 0) return;
+        let ticks = 0;
+        motionTimer = win.setInterval(() => {
+          ticks += 1;
+          motionTargets.forEach((mt) => {
+            if (!mt.el.isConnected) return;
+            if (mt.kind === 'dom') {
+              const r = mt.el.getBoundingClientRect();
+              const dx = r.x - mt.last.x, dy = r.y - mt.last.y;
+              if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+                const rec = { x: Math.round(mt.last.x + r.width / 2), y: Math.round(mt.last.y + r.height / 2),
+                  toX: Math.round(r.x + r.width / 2), toY: Math.round(r.y + r.height / 2),
+                  action: 'motion', mode: options.getMode(), target: mt.selector,
+                  moved: { dx: Math.round(dx), dy: Math.round(dy) }, color: '#7b61ff' };
+                traceEvents.push(rec); if (traceEvents.length > 120) traceEvents.shift();
+                rebuildTrace(); if (typeof options.onTrace === 'function') options.onTrace(rec);
+              }
+              mt.last = { x: r.x, y: r.y };
+            } else if (mt.kind === 'canvas' && mt.ctx && ticks % 4 === 0) {
+              try {
+                const w = mt.el.width, hgt = mt.el.height;
+                if (!w || !hgt) return;
+                const bandY = Math.floor(hgt * 0.45);
+                const img = mt.ctx.getImageData(0, bandY, w, 1).data;
+                // Cheap checksum of a scanline; a change means canvas content moved.
+                let sum = 0; for (let i = 0; i < img.length; i += 16) sum = (sum + img[i] * (i + 1)) % 1000000007;
+                if (mt.lastFrame !== null && mt.lastFrame !== sum) {
+                  // Find the horizontally-shifted brightest pixel to approximate motion direction.
+                  const r = mt.el.getBoundingClientRect();
+                  const scaleX = r.width / w;
+                  const rec = { x: Math.round(r.x + r.width * 0.5), y: Math.round(r.y + r.height * 0.45),
+                    toX: Math.round(r.x + r.width * (0.5 + 0.06 * Math.sin(ticks * 0.3))), toY: Math.round(r.y + r.height * 0.45),
+                    action: 'canvas-motion', mode: options.getMode(), target: mt.selector,
+                    moved: { scanlineDelta: sum - mt.lastFrame }, color: '#00b8d4' };
+                  traceEvents.push(rec); if (traceEvents.length > 120) traceEvents.shift();
+                  rebuildTrace(); if (typeof options.onTrace === 'function') options.onTrace(rec);
+                }
+                mt.lastFrame = sum;
+              } catch (e) { /* tainted or unavailable canvas: skip */ }
+            }
+          });
+        }, 120);
+      }
+      if (doc.readyState === 'complete') setupMotionTracking();
+      else doc.defaultView.addEventListener('load', setupMotionTracking, { once: true });
       function trackMotion(el, x, y, meta, color) {
         const start = el ? el.getBoundingClientRect() : null;
         const record = { x: Math.round(x), y: Math.round(y), ...meta, color, toX: Math.round(x), toY: Math.round(y) };
@@ -796,6 +867,7 @@ window.__ModuleLoader__.load({
           doc.removeEventListener('click', onTraceClick, true);
           doc.removeEventListener('submit', onSubmit, true);
           doc.removeEventListener('scroll', paint, true);
+          if (motionTimer !== null) { doc.defaultView.clearInterval(motionTimer); motionTimer = null; }
           hoverBox.remove();
           hoverTag.remove();
           traceSvg.remove();
