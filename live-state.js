@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 
 const STORE_DIR = join(process.env.DSH_HOME || join(process.env.USERPROFILE || '', '.dsh'), 'designer-mode');
 const STORE_FILE = join(STORE_DIR, 'live.json');
-const EMPTY = { html: '', revision: 0, started: false, approved: false, updatedAt: 0, agentMode: false, label: '', activity: null };
+const EMPTY = { html: '', revision: 0, started: false, approved: false, updatedAt: 0, agentMode: false, label: '', activity: null, trace: [] };
 
 let live = load();
 function load() {
@@ -33,6 +33,19 @@ function persist() {
   } catch {}
 }
 
+export function addTrace(entry) {
+  if (!Array.isArray(live.trace)) live.trace = [];
+  live.trace.push({ ts: Date.now(), ...entry });
+  if (live.trace.length > 200) live.trace = live.trace.slice(live.trace.length - 200);
+  persist();
+  return live.trace;
+}
+export function clearTrace() {
+  live.trace = [];
+  persist();
+  return live.trace;
+}
+export function getTrace() { return Array.isArray(live.trace) ? live.trace : []; }
 export function setActivity(type, label = '') {
   live.activity = { type, label, ts: Date.now() };
   live.updatedAt = Date.now();

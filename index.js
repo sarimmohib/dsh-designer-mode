@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { measureAnimation } from './anim.js';
-import { getLive, publish as publishLive, setApproved as setLiveApproved, setAgentMode as setLiveAgent, clearLive, setActivity } from './live-state.js';
+import { getLive, publish as publishLive, setApproved as setLiveApproved, setAgentMode as setLiveAgent, clearLive, setActivity, addTrace, clearTrace, getTrace } from './live-state.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -435,6 +435,20 @@ export function apply(ctx) {
     },
   }), 'designer-mode: designer_animate tool');
 
+  ctx.effect(() => ctx.tools.register({
+    name: 'designer_trace',
+    description: 'Read or clear the movement trace: an ordered log of the user clicks/taps on the canvas, what element or button was activated, and the resulting motion path (which object moved where). Use action "read" to inspect or "clear" to reset.',
+    parameters: { action: { type: 'string', description: 'read | clear (default read)' } },
+    output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: 'Trace (' + (value.trace ?? []).length + ' events): ' + JSON.stringify((value.trace ?? []).slice(-8)) }] },
+    async execute(args, _exec) {
+      if (String(args.action ?? 'read') === 'clear') {
+        clearTrace();
+        return { ok: true, trace: [] };
+      }
+      return { ok: true, trace: getTrace() };
+    },
+  }), 'designer-mode: designer_trace tool');
+
   /* ------------------------------------------ headless control of UI features */
 
   const VIEW_RATIOS = ['fill', 'phone', 'portrait', 'square', 'landscape', 'tv', 'wide'];
@@ -599,6 +613,7 @@ export function apply(ctx) {
         // agent publish, regardless of which session id it polls with.
         const live = getLive();
         if (live !== undefined && live.activity !== undefined) result.activity = live.activity;
+        if (live !== undefined) result.trace = getTrace();
         if (live !== undefined && live.label) result.liveLabel = live.label;
         if (live !== undefined && live.started && (result.empty || live.revision > (result.revision ?? 0))) {
           result.started = true;
@@ -716,6 +731,19 @@ export function apply(ctx) {
               notify(sessionId);
             }
             sendJson(res, 200, { ok: result.error === undefined, result, state: publicState(state) });
+            return;
+          }
+          if (action === 'trace-add') {
+            const entry = payload.entry;
+            if (entry !== undefined && entry !== null && typeof entry === 'object') addTrace(entry);
+            notify(sessionId);
+            sendJson(res, 200, { ok: true, trace: getTrace() });
+            return;
+          }
+          if (action === 'trace-clear') {
+            clearTrace();
+            notify(sessionId);
+            sendJson(res, 200, { ok: true, trace: [] });
             return;
           }
           if (action === 'view-set') {

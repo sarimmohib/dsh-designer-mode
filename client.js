@@ -560,6 +560,56 @@ window.__ModuleLoader__.load({
       hoverTag.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;font:11px/1.3 ui-monospace,monospace;background:#c8732f;color:#fff;padding:2px 6px;border-radius:3px;display:none;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
       doc.documentElement.appendChild(hoverTag);
 
+      /* Movement trace: an SVG overlay of click points and the motion path
+       * each click caused. Hidden by default (agent-only) until toggled. */
+      const traceSvg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      traceSvg.setAttribute('data-designer-trace', '');
+      traceSvg.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2147483644;display:none';
+      doc.documentElement.appendChild(traceSvg);
+      const traceEvents = [];
+      const NS_SVG = 'http://www.w3.org/2000/svg';
+
+      function tracePath(x1, y1, x2, y2, color) {
+        const line = doc.createElementNS(NS_SVG, 'line');
+        line.setAttribute('x1', String(x1)); line.setAttribute('y1', String(y1));
+        line.setAttribute('x2', String(x2)); line.setAttribute('y2', String(y2));
+        line.setAttribute('stroke', color || '#ff5a2e');
+        line.setAttribute('stroke-width', '2');
+        line.setAttribute('stroke-dasharray', '5 4');
+        const head = doc.createElementNS(NS_SVG, 'circle');
+        head.setAttribute('cx', String(x1)); head.setAttribute('cy', String(y1));
+        head.setAttribute('r', '5'); head.setAttribute('fill', color || '#ff5a2e');
+        traceSvg.appendChild(line); traceSvg.appendChild(head);
+      }
+      function rebuildTrace() {
+        while (traceSvg.firstChild) traceSvg.removeChild(traceSvg.firstChild);
+        traceEvents.forEach((e) => tracePath(e.x, e.y, e.toX ?? e.x, e.toY ?? e.y, e.color));
+      }
+      function setTraceVisible(visible) { traceSvg.style.display = visible ? 'block' : 'none'; }
+      function trackMotion(el, x, y, meta, color) {
+        const start = el ? el.getBoundingClientRect() : null;
+        const record = { x: Math.round(x), y: Math.round(y), ...meta, color, toX: Math.round(x), toY: Math.round(y) };
+        traceEvents.push(record);
+        if (traceEvents.length > 120) traceEvents.shift();
+        rebuildTrace();
+        if (typeof options.onTrace === 'function') options.onTrace(record);
+        if (start) {
+          let count = 0;
+          const timer = doc.defaultView.setInterval(() => {
+            const now = el.getBoundingClientRect();
+            const dx = now.x - start.x, dy = now.y - start.y;
+            if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+              record.toX = Math.round(now.x + now.width / 2);
+              record.toY = Math.round(now.y + now.height / 2);
+              record.moved = { dx: Math.round(dx), dy: Math.round(dy) };
+              rebuildTrace();
+              if (typeof options.onTrace === 'function') options.onTrace(record);
+            }
+            if (++count > 20) doc.defaultView.clearInterval(timer);
+          }, 60);
+        }
+      }
+
       function eidOf(el) {
         let id = ids.get(el);
         if (id === undefined) {
@@ -705,23 +755,50 @@ window.__ModuleLoader__.load({
       const onSubmit = (event) => {
         if (options.getMode() !== 'navigate') event.preventDefault();
       };
+      /* Record every click/tap in the canvas — including Navigate mode where
+       * the game is interactive — plus which element/button was activated. */
+      const onTraceClick = (event) => {
+        const t = event.target;
+        if (!t || t.nodeType !== 1) return;
+        if (t.hasAttribute && (t.hasAttribute('data-designer-outline') || t.hasAttribute('data-designer-label') || t.hasAttribute('data-designer-selection') || t.hasAttribute('data-designer-trace'))) return;
+        const r = t.getBoundingClientRect();
+        const label = (t.id ? '#' + t.id : '') + (typeof t.className === 'string' && t.className.trim() ? '.' + t.className.trim().split(/\s+/).slice(0, 2).join('.') : '') + (t.tagName ? ' <' + t.tagName.toLowerCase() + '>' : '');
+        const text = (t.innerText || t.value || t.getAttribute('aria-label') || '').trim().slice(0, 40);
+        trackMotion(t, event.clientX, event.clientY, {
+          action: 'click', mode: options.getMode(), target: label,
+          text, box: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+        }, options.getMode() === 'navigate' ? '#2f8f5b' : '#ff5a2e');
+      };
 
       doc.addEventListener('mousemove', onMove, true);
       doc.addEventListener('mouseleave', onLeave, true);
       doc.addEventListener('click', onClick, true);
+      doc.addEventListener('click', onTraceClick, true);
       doc.addEventListener('submit', onSubmit, true);
       doc.addEventListener('scroll', paint, true);
 
       return {
         paint,
+        setTraceVisible,
+        addTracePoint(entry) {
+          if (entry === undefined || entry === null) return;
+          traceEvents.push({
+            x: Number(entry.x) || 0, y: Number(entry.y) || 0,
+            toX: Number(entry.toX ?? entry.x) || 0, toY: Number(entry.toY ?? entry.y) || 0,
+            color: entry.color,
+          });
+          rebuildTrace();
+        },
         detach() {
           doc.removeEventListener('mousemove', onMove, true);
           doc.removeEventListener('mouseleave', onLeave, true);
           doc.removeEventListener('click', onClick, true);
+          doc.removeEventListener('click', onTraceClick, true);
           doc.removeEventListener('submit', onSubmit, true);
           doc.removeEventListener('scroll', paint, true);
           hoverBox.remove();
           hoverTag.remove();
+          traceSvg.remove();
           layers.forEach((layer) => layer.remove());
           layers.clear();
         },
@@ -741,6 +818,9 @@ window.__ModuleLoader__.load({
       const [animating, setAnimating] = React.useState(false);
       const [animResult, setAnimResult] = React.useState(null);
       const [immersive, setImmersive] = React.useState(false);
+      const [traceVisible, setTraceVisible] = React.useState(false);
+      const traceVisibleRef = React.useRef(false);
+      traceVisibleRef.current = traceVisible;
       const [frameKey, setFrameKey] = React.useState(0);
       const [ratio, setRatio] = React.useState('fill');
       const reloadRef = React.useRef(0);
@@ -828,14 +908,25 @@ window.__ModuleLoader__.load({
             });
             if (tappedMode !== 'unselect') window.setTimeout(() => editorRef.current?.focus(), 0);
           },
+          onTrace: (entry) => { void command(sessionId, 'trace-add', { entry }); },
         });
+        wiringRef.current.setTraceVisible(traceVisibleRef.current);
         wiringRef.current.paint();
+        // Restore previously captured trace lines from shared state after refresh.
+        if (Array.isArray(state.trace)) {
+          state.trace.forEach((e) => wiringRef.current?.addTracePoint(e));
+        }
       }, []);
 
       /* Mode or selection changed: repaint the frame overlays. */
       React.useEffect(() => {
         wiringRef.current?.paint();
       }, [mode, selected]);
+
+      /* Show/hide the agent-only movement-trace lines on user toggle. */
+      React.useEffect(() => {
+        wiringRef.current?.setTraceVisible(traceVisible);
+      }, [traceVisible]);
 
       /* Immersive: flag the product root so the shell's tab strip can collapse
        * and give the canvas the whole screen. The toggle lives in this rail,
@@ -1101,6 +1192,13 @@ window.__ModuleLoader__.load({
             'aria-label': immersive ? t('ui.immersiveExit') : t('ui.immersive'),
             onClick: () => setImmersive((value) => !value),
           }, h(ImmersiveIcon)),
+          h('button', {
+            type: 'button', 'data-icon': '',
+            'aria-pressed': traceVisible ? 'true' : 'false',
+            title: traceVisible ? 'Hide movement trace' : 'Show movement trace',
+            'aria-label': 'Toggle movement trace',
+            onClick: () => setTraceVisible((v) => !v),
+          }, 'Trace'),
           h('button', {
             type: 'button', title: t('ui.reload'), 'aria-label': t('ui.reload'),
             onClick: () => { setFrameKey((value) => value + 1); void pushView({ reload: true }); },
