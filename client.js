@@ -1,9 +1,6 @@
 window.__ModuleLoader__.load({
   id: '@local/designer-mode',
   factory(require) {
-    // Earliest possible cleanup: older versions could leave this attribute on
-    // <html>, hiding DSH's own sidebar. Remove it before anything registers.
-    try { document.documentElement.removeAttribute('data-designer-immersive'); } catch (e) {}
     const React = require('react');
     const h = React.createElement;
 
@@ -716,8 +713,8 @@ window.__ModuleLoader__.load({
           || el.hasAttribute('data-designer-selection');
       }
 
-      function interactive(target) {
-        if (options.getMode() === 'navigate') return null;
+      function interactive(target, force) {
+        if (options.getMode() === 'navigate' && !force) return null;
         if (!target || target.nodeType !== 1) return null;
         if (isOverlay(target)) return null;
         if (target === doc.documentElement || target === doc.body) return null;
@@ -805,15 +802,20 @@ window.__ModuleLoader__.load({
         paintHover(null);
       };
       const onClick = (event) => {
-        if (options.getMode() === 'navigate') return;
-        const el = interactive(event.target);
+        // Selection must ALWAYS be possible. A modifier key selects even while
+        // in Navigate mode, without leaving the game/interaction mode.
+        const force = event.altKey || event.shiftKey || event.ctrlKey || event.metaKey;
+        if (options.getMode() === 'navigate' && !force) return;
+        const el = interactive(event.target, force);
         if (el === null) return;
-        event.preventDefault();
-        event.stopPropagation();
+        if (force || options.getMode() !== 'navigate') {
+          event.preventDefault();
+          event.stopPropagation();
+        }
         const info = describe(el);
         if (info === null) return;
         paintHover(el);
-        options.onTap(info, eidOf(el), options.getMode());
+        options.onTap(info, eidOf(el), force ? 'select' : options.getMode());
       };
       const onSubmit = (event) => {
         if (options.getMode() !== 'navigate') event.preventDefault();
@@ -904,7 +906,8 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (view === undefined) return;
         if (typeof view.ratio === 'string' && view.ratio !== ratio) setRatio(view.ratio);
-        if (typeof view.mode === 'string' && view.mode !== mode) setMode(view.mode);
+        // Mode is user-controlled only. Never auto-apply a persisted 'navigate'
+        // here: it would silently disable selection. Local clicks + view-set own it.
         if (typeof view.reloadSeq === 'number' && view.reloadSeq !== reloadRef.current) {
           reloadRef.current = view.reloadSeq;
           setFrameKey((value) => value + 1);
@@ -1013,14 +1016,16 @@ window.__ModuleLoader__.load({
         }
       }, [activeId]);
 
-      /* Approval must never disable interaction: force select mode back on if
-       * anything (agent or host) left the panel in navigate mode at approval. */
+      /* Selection must ALWAYS be available. Persisted/host navigate mode can
+       * otherwise disable selection entirely (interactive() returns null), so
+       * whenever a new design revision appears we return to Select mode. Users
+       * can still switch to Navigate temporarily to interact with the design. */
       React.useEffect(() => {
-        if (cur.approved && modeRef.current === 'navigate') {
+        if (modeRef.current === 'navigate') {
           setMode('select');
           void command(sessionId, 'view-set', { mode: 'select' });
         }
-      }, [cur.approved]);
+      }, [cur.revision, cur.approved]);
 
       const status = cur.approved ? 'approved' : cur.started ? 'live' : 'idle';
       const statusLabel = cur.approved ? t('ui.statusDone') : cur.started ? t('ui.statusLive') : t('ui.statusIdle');
