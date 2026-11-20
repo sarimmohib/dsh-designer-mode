@@ -1082,7 +1082,6 @@ window.__ModuleLoader__.load({
       };
       const tabSelect = (id) => { if (id !== activeId) void tabCommand('tab-select', { id }); };
       const tabClose = (event, id) => { event.stopPropagation(); void tabCommand('tab-close', { id }); };
-      const agentBegin = () => { void tabCommand('agent-begin', { name: 'Design ' + (tabs.length + 1) }); };
 
       const approve = async () => {
         setBusy(true);
@@ -1171,8 +1170,7 @@ window.__ModuleLoader__.load({
             title: 'Close tab',
             onClick: (event) => tabClose(event, tab.id),
           }, '×'))),
-        h('button', { type: 'button', 'data-tab-add': '', title: 'New design tab', 'aria-label': 'New design tab', onClick: tabNew }, '+'),
-        h('button', { type: 'button', 'data-tab-agent': '', title: 'Design with agent', 'aria-label': 'Design with agent', onClick: agentBegin }, 'Agent'));
+        h('button', { type: 'button', 'data-tab-add': '', title: 'New design tab', 'aria-label': 'New design tab', onClick: tabNew }, '+'));
 
       const canvas = h('div', { 'data-designer-canvas': '', ref: canvasRef },
         state.loaded && !cur.started ? null : h('div', {

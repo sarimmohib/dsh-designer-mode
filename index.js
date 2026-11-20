@@ -19,7 +19,6 @@ const execFileAsync = promisify(execFile);
 const ALLOWED_WHILE_DESIGNING = new Set([
   'designer_update',
   'designer_state',
-  'designer_agent_begin',
   'designer_screenshot',
   'designer_animate',
   // DSH bridges (including the Web GUI) dispatch calls through this wrapper.
@@ -210,14 +209,6 @@ export function apply(ctx) {
     return tab;
   };
 
-  const agentBegin = (sessionId, name) => {
-    const state = ensureState(sessionId);
-    const tab = createTab(state, name || 'Agent design', { started: true, approved: true, agentMode: true });
-    tab.updatedAt = Date.now();
-    notify(sessionId);
-    return tab;
-  };
-
   const start = (sessionId) => {
     const state = ensureState(sessionId);
     const tab = activeTab(state);
@@ -361,27 +352,6 @@ export function apply(ctx) {
       };
     },
   }), 'designer-mode: designer_state tool');
-
-  ctx.effect(() => ctx.tools.register({
-    name: 'designer_agent_begin',
-    description: 'Create a new design tab in agent mode: unrestricted (no design-first gate) and pre-approved (no user approval needed). Use when the agent needs to design something on its own, e.g. a logo or UI element in isolation. Publish with designer_update, then capture with designer_screenshot.',
-    parameters: { name: { type: 'string' } },
-    output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: { id: { type: 'string' }, name: { type: 'string' } },
-        required: ['id', 'name'],
-      },
-      render: (_args, value) => [{ type: 'text', text: 'Agent design tab created: ' + value.name + ' (' + value.id + ').' }],
-    },
-    async execute(args, exec) {
-      const agent = exec.agent;
-      if (agent === undefined) throw new Error('designer_agent_begin needs a calling agent');
-      const tab = agentBegin(agent.session.id, typeof args.name === 'string' ? args.name : undefined);
-      return { id: tab.id, name: tab.name };
-    },
-  }), 'designer-mode: designer_agent_begin tool');
 
   ctx.effect(() => ctx.tools.register({
     name: 'designer_screenshot',
@@ -553,12 +523,11 @@ export function apply(ctx) {
       if (tab === undefined || !tab.started) return '';
       return [
         'DESIGNER MODE IS ON for this session (tab ' + tab.name + ', revision ' + tab.revision + ').',
-        'You are UNRESTRICTED: there is no design-first gate and no user approval is required. You may freely work on other tasks, use all tools, or hand the design work to a subagent while you continue elsewhere.',
+        'You are UNRESTRICTED: there is no design-first gate. You may freely work on other tasks or hand the design work to a subagent. Only the USER can finalize a design with the Done button — you cannot approve or finalize a design; keep it editable via designer_update.',
         'Designer tools:',
         '- designer_update(html, note?, tab?) publishes a complete self-contained HTML document to the canvas.',
         '- designer_state() reads tabs, active tab, revision, and view state.',
         '- designer_screenshot(width?, height?, path?, tab?) headlessly captures the canvas to a PNG.',
-        '- designer_agent_begin(name?) creates a fresh isolated design tab.',
         '- designer_tab(action, id?, name?) with action new|select|close|rename controls tabs headlessly.',
         '- designer_canvas(ratio?, mode?, reload?, clearSelection?) controls the panel rail headlessly: ratios fill/phone/portrait/square/landscape/tv/wide, modes navigate/select/unselect.',
         'The user sees published HTML live in the Designer tab. In Select/Unselect modes their taps produce ordered element selections; change exactly those elements and republish the whole document.',
@@ -703,11 +672,6 @@ export function apply(ctx) {
               tab.name = payload.name;
               notify(sessionId);
             }
-            sendJson(res, 200, { ok: true, state: publicState(state) });
-            return;
-          }
-          if (action === 'agent-begin') {
-            agentBegin(sessionId, typeof payload.name === 'string' ? payload.name : undefined);
             sendJson(res, 200, { ok: true, state: publicState(state) });
             return;
           }
