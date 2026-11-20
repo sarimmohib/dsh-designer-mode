@@ -331,6 +331,7 @@ export function apply(ctx) {
     parameters: {},
     output: {
       schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: 'designer: ' + (value.started ? 'canvas at revision ' + value.revision : 'no canvas') + '; ' + (value.approved ? 'approved' : 'not approved') + '; ' + (value.tabs ?? []).length + ' tab(s).' }],
     },
     async execute(_args, exec) {
       const agent = exec.agent;
@@ -359,6 +360,7 @@ export function apply(ctx) {
         properties: { id: { type: 'string' }, name: { type: 'string' } },
         required: ['id', 'name'],
       },
+      render: (_args, value) => [{ type: 'text', text: 'Agent design tab created: ' + value.name + ' (' + value.id + ').' }],
     },
     async execute(args, exec) {
       const agent = exec.agent;
@@ -377,7 +379,7 @@ export function apply(ctx) {
       path: { type: 'string' },
       tab: { type: 'string' },
     },
-    output: { schema: { type: 'object' } },
+    output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: value.error ? 'Screenshot failed: ' + value.error : 'Screenshot saved to ' + value.path + ' (' + value.bytes + ' bytes).' }] },
     async execute(args, exec) {
       const agent = exec.agent;
       if (agent === undefined) throw new Error('designer_screenshot needs a calling agent');
@@ -404,7 +406,7 @@ export function apply(ctx) {
       label: { type: 'string', description: 'Label for this measurement.' },
       save: { type: 'boolean', description: 'Save this score to the active tab state for the panel display.' },
     },
-    output: { schema: { type: 'object' } },
+    output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: value.error ? 'Animation measure failed: ' + value.error : 'Animation: ' + value.fps + ' FPS, p95 ' + value.p95Ms + 'ms, score ' + value.score + '/100 (' + value.verdict + ').' }] },
     async execute(args, exec) {
       const agent = exec.agent;
       if (agent === undefined) throw new Error('designer_animate needs a calling agent');
@@ -447,7 +449,7 @@ export function apply(ctx) {
       reload: { type: 'boolean', description: 'Reload the canvas frame (bumps its key).' },
       clearSelection: { type: 'boolean', description: 'Clear all selected element chips.' },
     },
-    output: { schema: { type: 'object' } },
+    output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: 'Canvas view updated: ' + JSON.stringify(value.applied ?? {}) }] },
     async execute(args, exec) {
       const agent = exec.agent;
       if (agent === undefined) throw new Error('designer_canvas needs a calling agent');
@@ -480,7 +482,7 @@ export function apply(ctx) {
       id: { type: 'string', description: 'Target tab id for select/close/rename.' },
       name: { type: 'string', description: 'Name for a new tab or rename.' },
     },
-    output: { schema: { type: 'object' } },
+    output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: 'Tab action ' + (value.ok ? 'ok' : 'failed') + (value.tab ? ' (' + value.tab.name + ')' : '') + '.' }] },
     async execute(args, exec) {
       const agent = exec.agent;
       if (agent === undefined) throw new Error('designer_tab needs a calling agent');
