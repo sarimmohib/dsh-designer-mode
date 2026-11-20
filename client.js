@@ -348,6 +348,16 @@ window.__ModuleLoader__.load({
       '[data-designer-panel] [data-designer-rail] button[aria-pressed="true"][data-icon] {',
       '  background: #ff5a2e; border-color: #ff5a2e; color: #fff;',
       '}',
+      '[data-designer-panel] [data-designer-activity] {',
+      '  flex: none; padding: 5px 10px; font-size: 10.5px; font-weight: 600;',
+      '  color: #ffb98a; background: #2a1c12; border-top: 1px solid #3a2a1c;',
+      '  display: flex; align-items: center; gap: 7px; letter-spacing: .02em;',
+      '}',
+      '[data-designer-panel] [data-designer-activity] i {',
+      '  width: 6px; height: 6px; border-radius: 50%; background: #ff5a2e;',
+      '  animation: actpulse 1s ease-in-out infinite;',
+      '}',
+      '@keyframes actpulse{0%,100%{opacity:.35}50%{opacity:1}}',
       '[data-designer-panel] [data-designer-error] {',
       '  flex: none; padding: 0 16px 9px; font-size: 11px; color: #ff8a65;',
       '}',
@@ -458,7 +468,7 @@ window.__ModuleLoader__.load({
           }
         };
         tick();
-        const timer = window.setInterval(tick, 1500);
+        const timer = window.setInterval(tick, 400);
         return () => {
           alive = false;
           window.clearInterval(timer);
@@ -1104,8 +1114,14 @@ window.__ModuleLoader__.load({
 
       const workspace = h('div', { 'data-designer-workspace': '' }, rail, canvas);
 
+      const activity = state.activity;
+      const activityBanner = activity === undefined || activity === null ? null
+        : h('div', { 'data-designer-activity': '', title: 'Agent activity: ' + activity.type },
+          h('i'), 'Agent · ' + (activity.label || activity.type));
+
       return h('div', { 'data-designer-panel': '', 'data-designer-status-value': status, 'data-designer-mode': mode },
         workspace,
+        activityBanner,
         composer,
         error === '' ? null : h('div', { 'data-designer-error': '' }, error));
     }

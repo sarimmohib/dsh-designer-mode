@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { measureAnimation } from './anim.js';
+import { getLive, publish as publishLive, setApproved as setLiveApproved, setAgentMode as setLiveAgent, clearLive, setActivity } from './live-state.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -190,6 +191,8 @@ export function apply(ctx) {
     tab.revision += 1;
     tab.started = true;
     tab.updatedAt = Date.now();
+    publishLive(tab.html, { label: tab.name, agentMode: tab.agentMode });
+    setActivity('design', tab.name);
     notify(sessionId);
     return tab;
   };
@@ -382,6 +385,7 @@ export function apply(ctx) {
         const state = ensureState(agent.session.id);
         if (tabById(state, args.tab) !== undefined) state.activeTabId = args.tab;
       }
+      setActivity('screenshot', 'Capturing canvas');
       return screenshot(agent.session.id, args);
     },
   }), 'designer-mode: designer_screenshot tool');
@@ -410,6 +414,7 @@ export function apply(ctx) {
         const tab = typeof args.tab === 'string' ? tabById(state, args.tab) : activeTab(state);
         html = tab === undefined ? '' : tab.html;
       }
+      setActivity('animate', args.label || 'Measuring animation');
       const result = await measureAnimation({
         html,
         durationMs: args.durationMs,
@@ -553,13 +558,15 @@ export function apply(ctx) {
 
   /* ------------------------------------------------------------------ web -- */
 
+  const EMPTY_FRAME = '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{height:100%;margin:0;font:14px/1.5 system-ui,sans-serif;color:#6b7280;display:flex;align-items:center;justify-content:center;background:#faf9f7}</style></head><body>No design yet.</body></html>';
   const renderFrame = (sessionId, tabId) => {
     const state = stateOf(sessionId);
     const tab = tabId === undefined || tabId === '' ? activeTab(state) : tabById(state, tabId);
-    const body = tab === undefined || tab.html === ''
-      ? '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{height:100%;margin:0;font:14px/1.5 system-ui,sans-serif;color:#6b7280;display:flex;align-items:center;justify-content:center;background:#faf9f7}</style></head><body>No design yet.</body></html>'
-      : tab.html;
-    return body;
+    if (tab !== undefined && tab.html !== '') return tab.html;
+    // Shared live canvas: the agent publishes into a different session than the
+    // panel polls, so fall back to the one shared design on disk.
+    const live = getLive();
+    return live !== undefined && live.html !== '' ? live.html : EMPTY_FRAME;
   };
 
   ctx.inject(['webServer'], (webCtx) => {
@@ -585,7 +592,27 @@ export function apply(ctx) {
       handler: async (req, res) => {
         const url = new URL(req.url ?? '/', 'http://127.0.0.1');
         const sessionId = url.searchParams.get('session') ?? '';
-        sendJson(res, 200, publicState(stateOf(sessionId)));
+        const result = publicState(stateOf(sessionId));
+        // Blend the shared live canvas so the panel always reflects the latest
+        // agent publish, regardless of which session id it polls with.
+        const live = getLive();
+        if (live !== undefined && live.activity !== undefined) result.activity = live.activity;
+        if (live !== undefined && live.label) result.liveLabel = live.label;
+        if (live !== undefined && live.started && (result.empty || live.revision > (result.revision ?? 0))) {
+          result.started = true;
+          result.revision = live.revision;
+          result.approved = live.approved;
+          result.agentMode = live.agentMode;
+          result.updatedAt = live.updatedAt;
+          result.empty = false;
+          if (result.active !== undefined) {
+            result.active.revision = live.revision;
+            result.active.started = true;
+            result.active.approved = live.approved;
+            result.active.empty = false;
+          }
+        }
+        sendJson(res, 200, result);
       },
     }), 'designer-mode: state route');
 
