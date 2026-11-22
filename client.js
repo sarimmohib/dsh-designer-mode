@@ -801,6 +801,10 @@ window.__ModuleLoader__.load({
       doc.addEventListener('click', onTraceClick, true);
       doc.addEventListener('submit', onSubmit, true);
       doc.addEventListener('scroll', paint, true);
+      /* The ratio presets and the panel layout resize the frame. The pick boxes
+       * are position:fixed at their old coordinates, so re-anchor them. */
+      const frameWin = doc.defaultView;
+      if (frameWin) frameWin.addEventListener('resize', paint);
 
       return {
         paint,
@@ -827,6 +831,7 @@ window.__ModuleLoader__.load({
            * aborts attach() before the new frame is wired, so selection dies after
            * the first republish. */
           const win = doc.defaultView;
+          if (win) win.removeEventListener('resize', paint);
           if (motionTimer !== null) {
             if (win) win.clearInterval(motionTimer);
             motionTimer = null;
