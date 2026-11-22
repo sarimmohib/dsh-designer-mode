@@ -239,7 +239,10 @@ export function apply(ctx) {
       tab.updatedAt = Date.now();
     }
     notify(sessionId);
-    post(sessionId, 'The user marked the design as done. Designer mode stays on as a reference: you may now implement this design in the project with the normal tools.');
+    // Fire and forget: approval is already saved and visible to the agent through
+    // designer_state. A missing controller or a rejected prompt must not become an
+    // unhandled rejection, which can take the host process down.
+    post(sessionId, 'The user marked the design as done. Designer mode stays on as a reference: you may now implement this design in the project with the normal tools.').catch(() => {});
     return state;
   };
 
