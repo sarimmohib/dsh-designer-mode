@@ -813,7 +813,16 @@ window.__ModuleLoader__.load({
           doc.removeEventListener('click', onTraceClick, true);
           doc.removeEventListener('submit', onSubmit, true);
           doc.removeEventListener('scroll', paint, true);
-          if (motionTimer !== null) { doc.defaultView.clearInterval(motionTimer); motionTimer = null; }
+          /* A republish removes the old iframe before this runs, which leaves its
+           * document without a window (defaultView === null) and kills its timers
+           * with it. An unguarded doc.defaultView.clearInterval() throws here and
+           * aborts attach() before the new frame is wired, so selection dies after
+           * the first republish. */
+          const win = doc.defaultView;
+          if (motionTimer !== null) {
+            if (win) win.clearInterval(motionTimer);
+            motionTimer = null;
+          }
           hoverBox.remove();
           hoverTag.remove();
           traceSvg.remove();
@@ -907,8 +916,11 @@ window.__ModuleLoader__.load({
         const frame = frameRef.current;
         const doc = frame ? frame.contentDocument : null;
         if (wiringRef.current !== null) {
-          wiringRef.current.detach();
+          /* Drop the reference first: a failing detach() on a frame that is
+           * already gone must never stop the new frame from being wired. */
+          const previous = wiringRef.current;
           wiringRef.current = null;
+          try { previous.detach(); } catch (error) { /* old frame already torn down */ }
         }
         if (!doc || doc.readyState !== 'complete' || doc.body === null) return;
         wiringRef.current = createWiring(doc, {
