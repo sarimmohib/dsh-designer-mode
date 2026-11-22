@@ -263,9 +263,12 @@ export function apply(ctx) {
 
   const screenshot = async (sessionId, options = {}) => {
     const state = ensureState(sessionId);
-    const tab = activeTab(state);
+    // A named tab is captured where it is; it must not become the user's active tab.
+    const named = typeof options.tab === 'string' && options.tab !== '';
+    const tab = named ? tabById(state, options.tab) : activeTab(state);
+    if (named && tab === undefined) return { error: 'No tab with id "' + options.tab + '".' };
     const html = tab === undefined ? '' : tab.html;
-    if (html === '') return { error: 'No design on the active tab yet. Publish one with designer_update first.' };
+    if (html === '') return { error: 'No design on ' + (named ? 'tab ' + options.tab : 'the active tab') + ' yet. Publish one with designer_update first.' };
 
     const width = clamp(Number(options.width) || 900, 320, 2560);
     const height = clamp(Number(options.height) || 1600, 320, 3200);
@@ -381,10 +384,6 @@ export function apply(ctx) {
     async execute(args, exec) {
       const agent = exec.agent;
       if (agent === undefined) throw new Error('designer_screenshot needs a calling agent');
-      if (typeof args.tab === 'string' && args.tab !== '') {
-        const state = ensureState(agent.session.id);
-        if (tabById(state, args.tab) !== undefined) state.activeTabId = args.tab;
-      }
       setActivity('screenshot', 'Capturing canvas', agent.session.id);
       return screenshot(agent.session.id, args);
     },
