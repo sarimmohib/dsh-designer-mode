@@ -477,6 +477,9 @@ window.__ModuleLoader__.load({
       return lines.join('\n');
     }
 
+    /** Counts wirings so element ids never repeat across canvas revisions. */
+    let wiringSeq = 0;
+
     /**
      * Canvas interaction, driven from the panel through the frame's own document.
      * The frame is same-origin (sandbox allow-same-origin), so attaching
@@ -489,6 +492,11 @@ window.__ModuleLoader__.load({
       const registry = new Map();
       const ids = new WeakMap();
       const layers = new Map();
+      /* Every republish builds a new wiring. A per-wiring counter alone would
+       * restart at e1 and collide with picks still held from the previous
+       * document, and onTap ignores an id that is already picked, so those taps
+       * were silently swallowed. The prefix keeps ids unique across wirings. */
+      const prefix = 'w' + (wiringSeq += 1) + '.';
       let seq = 0;
 
       const hoverBox = doc.createElement('div');
@@ -626,7 +634,7 @@ window.__ModuleLoader__.load({
         let id = ids.get(el);
         if (id === undefined) {
           seq += 1;
-          id = 'e' + seq;
+          id = prefix + 'e' + seq;
           ids.set(el, id);
           registry.set(id, el);
         }
